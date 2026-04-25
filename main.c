@@ -820,8 +820,7 @@ static void record_new_sections(int currentLevel) {
 
     completedSectionCount = completed_section_count_for_level(currentLevel, config->theoreticalMaxLevel);
     while (g_app.lastRecordedSection < completedSectionCount - 1) {
-        ++g_app.lastRecordedSection;
-        sectionIndex = g_app.lastRecordedSection;
+        sectionIndex = g_app.lastRecordedSection + 1;
 
         if (sectionIndex >= 0 &&
             sectionIndex < MAX_SECTION_COUNT &&
@@ -838,6 +837,11 @@ static void record_new_sections(int currentLevel) {
             }
 
             splitTime = frames_to_seconds(frameDelta);
+            if (splitTime < 2.0) {
+                break;
+            }
+
+            g_app.lastRecordedSection = sectionIndex;
             g_app.sectionTimes[sectionIndex] = splitTime;
             g_app.sectionGameTimerFrames[sectionIndex] = g_app.currentGameTimerFrames;
             previousBestTime = g_app.bestSectionTimes[sectionIndex];
@@ -851,6 +855,8 @@ static void record_new_sections(int currentLevel) {
             if (sectionIndex + 1 > g_app.sectionCount) {
                 g_app.sectionCount = sectionIndex + 1;
             }
+        } else {
+            break;
         }
     }
 }
