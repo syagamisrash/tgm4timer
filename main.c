@@ -11,8 +11,11 @@
 #include "config.h"
 
 #define MAX_SECTION_COUNT 30
+#define MAX_HISTORY_COUNT 5
 #define WINDOW_CLASS_NAME L"Tgm4SectionTimerWindow"
 #define BEST_TIME_DEFAULT_SECONDS 999.0
+#define ID_BUTTON_HISTORY_PREV 1001
+#define ID_BUTTON_HISTORY_NEXT 1002
 
 typedef struct PointerConfig {
     const wchar_t *modeLabel;
@@ -30,7 +33,21 @@ typedef struct PointerConfig {
     const wchar_t *maxLevelFileName;
 } PointerConfig;
 
-static const uintptr_t ASUKA_POINTER_OFFSETS[] = {
+typedef struct RunSnapshot {
+    bool valid;
+    wchar_t modeLabel[32];
+    int theoreticalMaxLevel;
+    int maxLevel;
+    int sectionCount;
+    double sectionTimes[MAX_SECTION_COUNT];
+    double sectionDeltas[MAX_SECTION_COUNT];
+    double bestSectionTimes[MAX_SECTION_COUNT];
+    int sectionGameTimerFrames[MAX_SECTION_COUNT];
+    int backstepCounts[MAX_SECTION_COUNT];
+    int tetrisCounts[MAX_SECTION_COUNT];
+} RunSnapshot;
+
+static uintptr_t ASUKA_POINTER_OFFSETS[] = {
     0x20,
     0x04,
     0x10,
@@ -39,7 +56,7 @@ static const uintptr_t ASUKA_POINTER_OFFSETS[] = {
     0x94
 };
 
-static const uintptr_t ASUKA_TIMER_POINTER_OFFSETS[] = {
+static uintptr_t ASUKA_TIMER_POINTER_OFFSETS[] = {
     0x20,
     0x04,
     0x10,
@@ -48,7 +65,7 @@ static const uintptr_t ASUKA_TIMER_POINTER_OFFSETS[] = {
     0x9C
 };
 
-static const uintptr_t NORMAL_POINTER_OFFSETS[] = {
+static uintptr_t NORMAL_POINTER_OFFSETS[] = {
     0x08,
     0x30,
     0x10,
@@ -58,7 +75,7 @@ static const uintptr_t NORMAL_POINTER_OFFSETS[] = {
     0x98
 };
 
-static const uintptr_t NORMAL_TIMER_POINTER_OFFSETS[] = {
+static uintptr_t NORMAL_TIMER_POINTER_OFFSETS[] = {
     0x08,
     0x30,
     0x10,
@@ -68,7 +85,7 @@ static const uintptr_t NORMAL_TIMER_POINTER_OFFSETS[] = {
     0xA0
 };
 
-static const uintptr_t NORMAL_EX_POINTER_OFFSETS[] = {
+static uintptr_t NORMAL_EX_POINTER_OFFSETS[] = {
     0x08,
     0x30,
     0x2c,
@@ -77,7 +94,7 @@ static const uintptr_t NORMAL_EX_POINTER_OFFSETS[] = {
     0x1a4
 };
 
-static const uintptr_t NORMAL_EX_TIMER_POINTER_OFFSETS[] = {
+static uintptr_t NORMAL_EX_TIMER_POINTER_OFFSETS[] = {
     0x08,
     0x30,
     0x2C,
@@ -86,7 +103,7 @@ static const uintptr_t NORMAL_EX_TIMER_POINTER_OFFSETS[] = {
     0x1DC
 };
 
-static const uintptr_t CURSOR_POINTER_OFFSETS[] = {
+static uintptr_t CURSOR_POINTER_OFFSETS[] = {
     0x08,
     0x254,
     0x30,
@@ -95,7 +112,7 @@ static const uintptr_t CURSOR_POINTER_OFFSETS[] = {
     0x1C
 };
 
-static const uintptr_t MENU_CURSOR_POINTER_OFFSETS[] = {
+static uintptr_t MENU_CURSOR_POINTER_OFFSETS[] = {
     0x08,
     0x254,
     0x30,
@@ -105,7 +122,7 @@ static const uintptr_t MENU_CURSOR_POINTER_OFFSETS[] = {
     0x15
 };
 
-static const PointerConfig POINTER_CONFIGS[] = {
+static PointerConfig POINTER_CONFIGS[] = {
     {
         L"NORMAL",
         0x00A7E528,
@@ -257,9 +274,15 @@ typedef struct AppState {
     int sectionCount;
     int currentConfigIndex;
     int currentGameTimerFrames;
+    HWND historyPrevButton;
+    HWND historyNextButton;
+    RunSnapshot history[MAX_HISTORY_COUNT];
+    int historyCount;
+    int historyViewOffset;
     wchar_t saveDirectory[MAX_PATH];
     wchar_t saveFilePath[MAX_PATH];
     wchar_t maxLevelFilePath[MAX_PATH];
+    wchar_t configFilePath[MAX_PATH];
 
     wchar_t statusText[128];
 } AppState;
@@ -279,6 +302,11 @@ static void format_section_label(wchar_t *buffer, size_t bufferCount, int sectio
 static void format_game_timer(wchar_t *buffer, size_t bufferCount, int frames);
 static void clear_section_results(void);
 static void reset_tracking_state(void);
+static void archive_current_results_if_any(void);
+static const RunSnapshot *current_view_snapshot(void);
+static const wchar_t *gm_requirement_text_for_mode(const wchar_t *modeLabel);
+static void draw_multiline_text(HDC hdc, int x, int y, const wchar_t *text, COLORREF color);
+static void load_pointer_configs(void);
 
 static void copy_status_text(const wchar_t *text) {
     lstrcpynW(g_app.statusText, text, (int)(sizeof(g_app.statusText) / sizeof(g_app.statusText[0])));
@@ -293,21 +321,63 @@ static const PointerConfig *current_pointer_config(void) {
 }
 
 static void update_button_labels(void) {
-    return;
+    if (g_app.historyPrevButton != NULL) {
+        EnableWindow(g_app.historyPrevButton, g_app.historyCount > 0 && g_app.historyViewOffset < g_app.historyCount);
+    }
+
+    if (g_app.historyNextButton != NULL) {
+        EnableWindow(g_app.historyNextButton, g_app.historyViewOffset > 0);
+    }
 }
 
-static double cumulative_time_for_section(int sectionIndex) {
+static void archive_current_results_if_any(void) {
+    RunSnapshot snapshot;
+    const PointerConfig *config;
     int i;
-    double total;
 
-    total = 0.0;
-    for (i = 0; i <= sectionIndex; ++i) {
-        if (g_app.sectionTimes[i] < 0.0) {
-            break;
-        }
-        total += g_app.sectionTimes[i];
+    if (g_app.sectionCount <= 0) {
+        return;
     }
-    return total;
+
+    config = current_pointer_config();
+    if (config == NULL) {
+        return;
+    }
+
+    ZeroMemory(&snapshot, sizeof(snapshot));
+    snapshot.valid = true;
+    lstrcpynW(snapshot.modeLabel, config->modeLabel, (int)(sizeof(snapshot.modeLabel) / sizeof(snapshot.modeLabel[0])));
+    snapshot.theoreticalMaxLevel = config->theoreticalMaxLevel;
+    snapshot.maxLevel = g_app.maxLevel;
+    snapshot.sectionCount = g_app.sectionCount;
+
+    for (i = 0; i < MAX_SECTION_COUNT; ++i) {
+        snapshot.sectionTimes[i] = g_app.sectionTimes[i];
+        snapshot.sectionDeltas[i] = g_app.sectionDeltas[i];
+        snapshot.bestSectionTimes[i] = g_app.bestSectionTimes[i];
+        snapshot.sectionGameTimerFrames[i] = g_app.sectionGameTimerFrames[i];
+        snapshot.backstepCounts[i] = g_app.backstepCounts[i];
+        snapshot.tetrisCounts[i] = g_app.tetrisCounts[i];
+    }
+
+    for (i = MAX_HISTORY_COUNT - 1; i > 0; --i) {
+        g_app.history[i] = g_app.history[i - 1];
+    }
+    g_app.history[0] = snapshot;
+
+    if (g_app.historyCount < MAX_HISTORY_COUNT) {
+        g_app.historyCount += 1;
+    }
+
+    g_app.historyViewOffset = 0;
+    update_button_labels();
+}
+
+static const RunSnapshot *current_view_snapshot(void) {
+    if (g_app.historyViewOffset <= 0 || g_app.historyViewOffset > g_app.historyCount) {
+        return NULL;
+    }
+    return &g_app.history[g_app.historyViewOffset - 1];
 }
 
 static double frames_to_seconds(int frames) {
@@ -347,6 +417,7 @@ static void build_save_paths(void) {
 
     *lastSlash = L'\0';
     config = current_pointer_config();
+    swprintf(g_app.configFilePath, MAX_PATH, L"%ls\\config.txt", exePath);
     if (config == NULL) {
         g_app.saveDirectory[0] = L'\0';
         g_app.saveFilePath[0] = L'\0';
@@ -356,6 +427,129 @@ static void build_save_paths(void) {
     swprintf(g_app.saveDirectory, MAX_PATH, L"%ls\\save", exePath);
     swprintf(g_app.saveFilePath, MAX_PATH, L"%ls\\%ls", g_app.saveDirectory, config->saveFileName);
     swprintf(g_app.maxLevelFilePath, MAX_PATH, L"%ls\\%ls", g_app.saveDirectory, config->maxLevelFileName);
+}
+
+static size_t split_csv_offsets(wchar_t *text, uintptr_t *offsets, size_t maxCount) {
+    wchar_t *token;
+    size_t count;
+
+    count = 0;
+    token = wcstok(text, L",");
+    while (token != NULL && count < maxCount) {
+        offsets[count] = (uintptr_t)wcstoul(token, NULL, 0);
+        count += 1;
+        token = wcstok(NULL, L",");
+    }
+
+    return count;
+}
+
+static void write_pointer_configs_to_file(void) {
+    FILE *file;
+    int i;
+    size_t j;
+
+    build_save_paths();
+    if (g_app.configFilePath[0] == L'\0') {
+        return;
+    }
+
+    file = _wfopen(g_app.configFilePath, L"w");
+    if (file == NULL) {
+        return;
+    }
+
+    fwprintf(file, L"mode\tlevel_base\tlevel_offsets\ttimer_base\ttimer_offsets\tcursor_value\tmenu_cursor_position\ttheoretical_max_level\tinitial_timer_frames\n");
+    for (i = 0; i < (int)(sizeof(POINTER_CONFIGS) / sizeof(POINTER_CONFIGS[0])); ++i) {
+        fwprintf(file, L"%ls\t0x%08IX\t", POINTER_CONFIGS[i].modeLabel, POINTER_CONFIGS[i].baseOffset);
+        for (j = 0; j < POINTER_CONFIGS[i].pointerOffsetCount; ++j) {
+            fwprintf(file, j == 0 ? L"0x%IX" : L",0x%IX", POINTER_CONFIGS[i].pointerOffsets[j]);
+        }
+        fwprintf(file, L"\t0x%08IX\t", POINTER_CONFIGS[i].timerBaseOffset);
+        for (j = 0; j < POINTER_CONFIGS[i].timerPointerOffsetCount; ++j) {
+            fwprintf(file, j == 0 ? L"0x%IX" : L",0x%IX", POINTER_CONFIGS[i].timerPointerOffsets[j]);
+        }
+        fwprintf(
+            file,
+            L"\t%d\t%d\t%d\t%d\n",
+            POINTER_CONFIGS[i].cursorValue,
+            POINTER_CONFIGS[i].menuCursorPosition,
+            POINTER_CONFIGS[i].theoreticalMaxLevel,
+            POINTER_CONFIGS[i].initialTimerFrames
+        );
+    }
+
+    fclose(file);
+}
+
+static void load_pointer_configs(void) {
+    FILE *file;
+    wchar_t line[1024];
+
+    build_save_paths();
+    if (g_app.configFilePath[0] == L'\0') {
+        return;
+    }
+
+    file = _wfopen(g_app.configFilePath, L"r");
+    if (file == NULL) {
+        write_pointer_configs_to_file();
+        return;
+    }
+
+    if (fgetws(line, sizeof(line) / sizeof(line[0]), file) == NULL) {
+        fclose(file);
+        write_pointer_configs_to_file();
+        return;
+    }
+
+    while (fgetws(line, sizeof(line) / sizeof(line[0]), file) != NULL) {
+        wchar_t *fields[9];
+        wchar_t *token;
+        wchar_t levelOffsetsText[512];
+        wchar_t timerOffsetsText[512];
+        int fieldCount;
+        int i;
+
+        fieldCount = 0;
+        token = wcstok(line, L"\t\r\n");
+        while (token != NULL && fieldCount < 9) {
+            fields[fieldCount++] = token;
+            token = wcstok(NULL, L"\t\r\n");
+        }
+
+        if (fieldCount < 9) {
+            continue;
+        }
+
+        for (i = 0; i < (int)(sizeof(POINTER_CONFIGS) / sizeof(POINTER_CONFIGS[0])); ++i) {
+            if (wcscmp(POINTER_CONFIGS[i].modeLabel, fields[0]) != 0) {
+                continue;
+            }
+
+            POINTER_CONFIGS[i].baseOffset = (uintptr_t)wcstoul(fields[1], NULL, 0);
+            lstrcpynW(levelOffsetsText, fields[2], (int)(sizeof(levelOffsetsText) / sizeof(levelOffsetsText[0])));
+            POINTER_CONFIGS[i].pointerOffsetCount = split_csv_offsets(
+                levelOffsetsText,
+                (uintptr_t *)POINTER_CONFIGS[i].pointerOffsets,
+                POINTER_CONFIGS[i].pointerOffsetCount
+            );
+            POINTER_CONFIGS[i].timerBaseOffset = (uintptr_t)wcstoul(fields[3], NULL, 0);
+            lstrcpynW(timerOffsetsText, fields[4], (int)(sizeof(timerOffsetsText) / sizeof(timerOffsetsText[0])));
+            POINTER_CONFIGS[i].timerPointerOffsetCount = split_csv_offsets(
+                timerOffsetsText,
+                (uintptr_t *)POINTER_CONFIGS[i].timerPointerOffsets,
+                POINTER_CONFIGS[i].timerPointerOffsetCount
+            );
+            POINTER_CONFIGS[i].cursorValue = _wtoi(fields[5]);
+            POINTER_CONFIGS[i].menuCursorPosition = _wtoi(fields[6]);
+            POINTER_CONFIGS[i].theoreticalMaxLevel = _wtoi(fields[7]);
+            POINTER_CONFIGS[i].initialTimerFrames = _wtoi(fields[8]);
+            break;
+        }
+    }
+
+    fclose(file);
 }
 
 static void save_best_times(void) {
@@ -748,6 +942,7 @@ static bool detect_mode_from_cursor(void) {
     }
 
     if (g_app.currentConfigIndex != newConfigIndex) {
+        archive_current_results_if_any();
         g_app.currentConfigIndex = newConfigIndex;
         reset_run_preserving_mode();
         load_best_times();
@@ -914,6 +1109,7 @@ static void update_timer_from_level(int level) {
     }
 
     if (g_app.clearResultsOnLevelAdvance && g_app.previousLevel == 0 && level > 0) {
+        archive_current_results_if_any();
         clear_section_results();
         g_app.lastRecordedSection = -1;
         g_app.clearResultsOnLevelAdvance = false;
@@ -925,7 +1121,7 @@ static void update_timer_from_level(int level) {
         g_app.backstepCounts[currentSectionIndex] += 1;
     }
 
-    if (g_app.previousLevel >= 0 && level == g_app.previousLevel + 6) {
+    if (g_app.previousLevel >= 0 && level >= g_app.previousLevel + 4) {
         currentSectionIndex = clamp_section_index_for_level(level, config->theoreticalMaxLevel);
         g_app.tetrisCounts[currentSectionIndex] += 1;
     }
@@ -1117,6 +1313,61 @@ static void format_game_timer(wchar_t *buffer, size_t bufferCount, int frames) {
     swprintf(buffer, bufferCount, L"%d:%02d.%02d", minutes, seconds, centiseconds);
 }
 
+static const wchar_t *gm_requirement_text_for_mode(const wchar_t *modeLabel) {
+    if (wcscmp(modeLabel, L"NORMAL(1.1)") == 0) {
+        return
+            L"GM Requirements\n"
+            L"SCORE 280000+\n"
+            L"Lv999 within 8:55\n"
+            L"6 tetrises in credit roll";
+    }
+
+    if (wcscmp(modeLabel, L"NORMAL(2.1)") == 0) {
+        return
+            L"GM Requirements\n"
+            L"SCORE 260000+\n"
+            L"Lv999 within 5:00 (Lv500 with in 3:20)\n"
+            L"8 tetrises in credit roll";
+    }
+
+    if (wcscmp(modeLabel, L"NORMAL(3.1)") == 0) {
+        return
+            L"GM Requirements\n"
+            L"Lv1000 within 4:01\n"
+            L"Lv1300 within 4:30\n"
+            L"Lv2000 within 6:46\n"
+            L"21 triples+ in credit roll";
+    }
+
+    return NULL;
+}
+
+static void draw_multiline_text(HDC hdc, int x, int y, const wchar_t *text, COLORREF color) {
+    const wchar_t *lineStart;
+    const wchar_t *lineEnd;
+    int currentY;
+
+    if (text == NULL) {
+        return;
+    }
+
+    SetTextColor(hdc, color);
+    lineStart = text;
+    currentY = y;
+
+    while (*lineStart != L'\0') {
+        lineEnd = wcschr(lineStart, L'\n');
+        if (lineEnd == NULL) {
+            TextOutW(hdc, x, currentY, lineStart, (int)wcslen(lineStart));
+            break;
+        }
+
+        TextOutW(hdc, x, currentY, lineStart, (int)(lineEnd - lineStart));
+        currentY += 22;
+        lineStart = lineEnd + 1;
+    }
+}
+
 static void paint_window(HWND hwnd) {
     PAINTSTRUCT ps;
     HDC hdc;
@@ -1143,7 +1394,14 @@ static void paint_window(HWND hwnd) {
     int gameTimeWidth;
     int backWidth;
     int tetWidth;
+    int infoTop;
     const PointerConfig *config;
+    const RunSnapshot *snapshot;
+    const wchar_t *displayModeLabel;
+    const wchar_t *gmRequirementText;
+    int displayTheoreticalMaxLevel;
+    int displayMaxLevel;
+    int displaySectionCount;
     wchar_t sectionLabel[32];
     wchar_t gameTimeText[32];
 
@@ -1181,24 +1439,41 @@ static void paint_window(HWND hwnd) {
 
     SetBkMode(memoryDc, TRANSPARENT);
     config = current_pointer_config();
+    snapshot = current_view_snapshot();
+    displayModeLabel = (config != NULL) ? config->modeLabel : L"-";
+    gmRequirementText = NULL;
+    displayTheoreticalMaxLevel = (config != NULL) ? config->theoreticalMaxLevel : 0;
+    displayMaxLevel = g_app.maxLevel;
+    displaySectionCount = g_app.sectionCount;
+
+    if (snapshot != NULL && snapshot->valid) {
+        displayModeLabel = snapshot->modeLabel;
+        displayTheoreticalMaxLevel = snapshot->theoreticalMaxLevel;
+        displayMaxLevel = snapshot->maxLevel;
+        displaySectionCount = snapshot->sectionCount;
+    }
+    gmRequirementText = gm_requirement_text_for_mode(displayModeLabel);
 
     y = 12;
     draw_text_line(memoryDc, &y, L"TGM4 Section Timer", RGB(240, 240, 240));
-    if (g_app.modeDetected) {
+    if (snapshot != NULL && snapshot->valid) {
+        swprintf(line, 128, L"Viewing History: %d/%d", g_app.historyViewOffset, g_app.historyCount);
+        draw_text_line(memoryDc, &y, line, RGB(255, 210, 140));
+    } else if (g_app.modeDetected) {
         draw_text_line(memoryDc, &y, g_app.statusText, RGB(160, 220, 255));
     } else {
         y += 22;
     }
 
-    if (g_app.modeDetected) {
-        if (config != NULL) {
+    if (g_app.modeDetected || (snapshot != NULL && snapshot->valid)) {
+        if (displayTheoreticalMaxLevel > 0) {
             swprintf(
                 line,
                 128,
                 L"Mode: %ls    Current Level: %d    Max Level: %d",
-                config->modeLabel,
-                g_app.currentLevel,
-                g_app.maxLevel
+                displayModeLabel,
+                snapshot != NULL ? displayMaxLevel : g_app.currentLevel,
+                displayMaxLevel
             );
             draw_text_line(memoryDc, &y, line, RGB(240, 240, 240));
         }
@@ -1206,7 +1481,7 @@ static void paint_window(HWND hwnd) {
         y += 22;
     }
 
-    if (g_app.modeDetected && g_app.timerRunning && g_app.levelReadable && g_app.currentGameTimerFrames >= 0) {
+    if (snapshot == NULL && g_app.modeDetected && g_app.timerRunning && g_app.levelReadable && g_app.currentGameTimerFrames >= 0) {
         format_game_timer(gameTimeText, sizeof(gameTimeText) / sizeof(gameTimeText[0]), g_app.currentGameTimerFrames);
         swprintf(line, 128, L"Run Time: %ls", gameTimeText);
         draw_text_line(memoryDc, &y, line, RGB(180, 255, 180));
@@ -1214,7 +1489,7 @@ static void paint_window(HWND hwnd) {
         y += 22;
     }
 
-    if (!g_app.modeDetected) {
+    if (!g_app.modeDetected && snapshot == NULL) {
         BitBlt(
             hdc,
             0,
@@ -1243,13 +1518,13 @@ static void paint_window(HWND hwnd) {
     tableLeft = 12;
     tableTop = y;
     rowHeight = 26;
-    visibleSectionCount = section_count_for_max_level(config->theoreticalMaxLevel);
+    visibleSectionCount = section_count_for_max_level(displayTheoreticalMaxLevel);
     if (visibleSectionCount > MAX_SECTION_COUNT) {
         visibleSectionCount = MAX_SECTION_COUNT;
     }
     cellPadding = 20;
 
-    format_section_label(sectionLabel, sizeof(sectionLabel) / sizeof(sectionLabel[0]), visibleSectionCount - 1, config->theoreticalMaxLevel);
+    format_section_label(sectionLabel, sizeof(sectionLabel) / sizeof(sectionLabel[0]), visibleSectionCount - 1, displayTheoreticalMaxLevel);
     sectionWidth = max_int(measure_text_width(memoryDc, L"Section"), measure_text_width(memoryDc, sectionLabel)) + cellPadding;
     deltaWidth = max_int(measure_text_width(memoryDc, L"Delta"), measure_text_width(memoryDc, L"+999.999 s")) + cellPadding;
     bestWidth = max_int(measure_text_width(memoryDc, L"Best"), measure_text_width(memoryDc, L"999.999 s")) + cellPadding;
@@ -1289,14 +1564,14 @@ static void paint_window(HWND hwnd) {
         wchar_t deltaSign;
 
         rowY = tableTop + rowHeight * (i + 1) + 6;
-        delta = g_app.sectionDeltas[i];
+        delta = snapshot != NULL ? snapshot->sectionDeltas[i] : g_app.sectionDeltas[i];
         deltaSign = delta < 0.0 ? L'-' : L'+';
 
-        format_section_label(line, 128, i, config->theoreticalMaxLevel);
+        format_section_label(line, 128, i, displayTheoreticalMaxLevel);
         draw_table_text(memoryDc, tableLeft + 10, rowY, line, RGB(240, 240, 240));
 
-        if (g_app.sectionTimes[i] >= 0.0) {
-            format_game_timer(line, 128, g_app.sectionGameTimerFrames[i]);
+        if (i < displaySectionCount && (snapshot != NULL ? snapshot->sectionTimes[i] : g_app.sectionTimes[i]) >= 0.0) {
+            format_game_timer(line, 128, snapshot != NULL ? snapshot->sectionGameTimerFrames[i] : g_app.sectionGameTimerFrames[i]);
             draw_table_text(memoryDc, columns[0] + 10, rowY, line, color_for_delta(delta));
 
             swprintf(line, 128, L"%lc%.3f s", deltaSign, delta < 0.0 ? -delta : delta);
@@ -1306,14 +1581,19 @@ static void paint_window(HWND hwnd) {
             draw_table_text(memoryDc, columns[1] + 10, rowY, L"-", RGB(140, 140, 140));
         }
 
-        swprintf(line, 128, L"%.3f s", g_app.bestSectionTimes[i]);
+        swprintf(line, 128, L"%.3f s", snapshot != NULL ? snapshot->bestSectionTimes[i] : g_app.bestSectionTimes[i]);
         draw_table_text(memoryDc, columns[2] + 10, rowY, line, RGB(200, 200, 200));
 
-        swprintf(line, 128, L"%d", g_app.backstepCounts[i]);
+        swprintf(line, 128, L"%d", snapshot != NULL ? snapshot->backstepCounts[i] : g_app.backstepCounts[i]);
         draw_table_text(memoryDc, columns[3] + 10, rowY, line, RGB(240, 240, 240));
 
-        swprintf(line, 128, L"%d", g_app.tetrisCounts[i]);
+        swprintf(line, 128, L"%d", snapshot != NULL ? snapshot->tetrisCounts[i] : g_app.tetrisCounts[i]);
         draw_table_text(memoryDc, columns[4] + 10, rowY, line, RGB(240, 240, 240));
+    }
+
+    infoTop = tableTop + rowHeight * (visibleSectionCount + 1) + 20;
+    if (gmRequirementText != NULL) {
+        draw_multiline_text(memoryDc, tableLeft, infoTop, gmRequirementText, RGB(200, 220, 255));
     }
 
     BitBlt(
@@ -1340,9 +1620,55 @@ static void paint_window(HWND hwnd) {
 static LRESULT CALLBACK window_proc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
     case WM_CREATE:
+        g_app.historyPrevButton = CreateWindowW(
+            L"BUTTON",
+            L"<-",
+            WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+            500,
+            8,
+            50,
+            28,
+            hwnd,
+            (HMENU)ID_BUTTON_HISTORY_PREV,
+            ((LPCREATESTRUCT)lParam)->hInstance,
+            NULL
+        );
+        g_app.historyNextButton = CreateWindowW(
+            L"BUTTON",
+            L"->",
+            WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+            556,
+            8,
+            50,
+            28,
+            hwnd,
+            (HMENU)ID_BUTTON_HISTORY_NEXT,
+            ((LPCREATESTRUCT)lParam)->hInstance,
+            NULL
+        );
         update_button_labels();
         SetTimer(hwnd, 1, POLL_INTERVAL_MS, NULL);
         SetTimer(hwnd, 2, WINDOW_REFRESH_MS, NULL);
+        return 0;
+
+    case WM_COMMAND:
+        if (LOWORD(wParam) == ID_BUTTON_HISTORY_PREV) {
+            if (g_app.historyViewOffset < g_app.historyCount) {
+                g_app.historyViewOffset += 1;
+                update_button_labels();
+                InvalidateRect(hwnd, NULL, FALSE);
+            }
+            return 0;
+        }
+
+        if (LOWORD(wParam) == ID_BUTTON_HISTORY_NEXT) {
+            if (g_app.historyViewOffset > 0) {
+                g_app.historyViewOffset -= 1;
+                update_button_labels();
+                InvalidateRect(hwnd, NULL, FALSE);
+            }
+            return 0;
+        }
         return 0;
 
     case WM_TIMER:
@@ -1380,6 +1706,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE previousInstance, PWSTR comman
 
     g_app.currentConfigIndex = -1;
     reset_timer_state();
+    load_pointer_configs();
     copy_status_text(L"Starting...");
 
     ZeroMemory(&wc, sizeof(wc));
@@ -1398,7 +1725,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE previousInstance, PWSTR comman
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_CLIPCHILDREN,
         CW_USEDEFAULT,
         CW_USEDEFAULT,
-        730,
+        630,
         900,
         NULL,
         NULL,
