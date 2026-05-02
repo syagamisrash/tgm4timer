@@ -11,7 +11,8 @@
 #include "config.h"
 
 #define MAX_SECTION_COUNT 30
-#define MAX_HISTORY_COUNT 5
+#define MAX_HISTORY_COUNT 20
+#define PACE_SAMPLE_COUNT 4096
 #define WINDOW_CLASS_NAME L"Tgm4SectionTimerWindow"
 #define BEST_TIME_DEFAULT_SECONDS 999.0
 #define ID_BUTTON_HISTORY_PREV 1001
@@ -37,6 +38,7 @@ typedef struct RunSnapshot {
     bool valid;
     wchar_t modeLabel[32];
     int theoreticalMaxLevel;
+    int finalLevel;
     int maxLevel;
     int sectionCount;
     double sectionTimes[MAX_SECTION_COUNT];
@@ -46,6 +48,11 @@ typedef struct RunSnapshot {
     int backstepCounts[MAX_SECTION_COUNT];
     int tetrisCounts[MAX_SECTION_COUNT];
 } RunSnapshot;
+
+typedef struct PaceSample {
+    ULONGLONG timeMs;
+    int level;
+} PaceSample;
 
 static uintptr_t ASUKA_POINTER_OFFSETS[] = {
     0x20,
@@ -262,6 +269,7 @@ typedef struct AppState {
     int lastRecordedSection;
     int cursorValue;
     int runStartGameTimerFrames;
+    double maxLevelsPerMinute;
 
     ULONGLONG runStartMs;
     ULONGLONG lastPollMs;
@@ -274,6 +282,9 @@ typedef struct AppState {
     int sectionCount;
     int currentConfigIndex;
     int currentGameTimerFrames;
+    PaceSample paceSamples[PACE_SAMPLE_COUNT];
+    int paceSampleStart;
+    int paceSampleCount;
     HWND historyPrevButton;
     HWND historyNextButton;
     RunSnapshot history[MAX_HISTORY_COUNT];
@@ -348,6 +359,7 @@ static void archive_current_results_if_any(void) {
     snapshot.valid = true;
     lstrcpynW(snapshot.modeLabel, config->modeLabel, (int)(sizeof(snapshot.modeLabel) / sizeof(snapshot.modeLabel[0])));
     snapshot.theoreticalMaxLevel = config->theoreticalMaxLevel;
+    snapshot.finalLevel = g_app.currentLevel;
     snapshot.maxLevel = g_app.maxLevel;
     snapshot.sectionCount = g_app.sectionCount;
 
@@ -382,6 +394,54 @@ static const RunSnapshot *current_view_snapshot(void) {
 
 static double frames_to_seconds(int frames) {
     return (double)frames / 60.0;
+}
+
+static double elapsed_seconds_since(ULONGLONG startMs) {
+    return (double)(GetTickCount64() - startMs) / 1000.0;
+}
+
+static double current_levels_per_minute(void) {
+    int oldestIndex;
+    int newestIndex;
+    ULONGLONG newestTime;
+
+    if (!g_app.timerRunning || g_app.currentLevel < 0 || g_app.paceSampleCount <= 0) {
+        return 0.0;
+    }
+
+    newestIndex = (g_app.paceSampleStart + g_app.paceSampleCount - 1) % PACE_SAMPLE_COUNT;
+    newestTime = g_app.paceSamples[newestIndex].timeMs;
+
+    while (g_app.paceSampleCount > 1) {
+        oldestIndex = g_app.paceSampleStart;
+        if (newestTime - g_app.paceSamples[oldestIndex].timeMs <= 60000ULL) {
+            break;
+        }
+
+        g_app.paceSampleStart = (g_app.paceSampleStart + 1) % PACE_SAMPLE_COUNT;
+        g_app.paceSampleCount -= 1;
+    }
+
+    oldestIndex = g_app.paceSampleStart;
+    return (double)(g_app.paceSamples[newestIndex].level - g_app.paceSamples[oldestIndex].level);
+}
+
+static void record_pace_sample(int level) {
+    int insertIndex;
+
+    if (!g_app.timerRunning || level < 0) {
+        return;
+    }
+
+    insertIndex = (g_app.paceSampleStart + g_app.paceSampleCount) % PACE_SAMPLE_COUNT;
+    g_app.paceSamples[insertIndex].timeMs = GetTickCount64();
+    g_app.paceSamples[insertIndex].level = level;
+
+    if (g_app.paceSampleCount < PACE_SAMPLE_COUNT) {
+        g_app.paceSampleCount += 1;
+    } else {
+        g_app.paceSampleStart = (g_app.paceSampleStart + 1) % PACE_SAMPLE_COUNT;
+    }
 }
 
 static void initialize_best_times(void) {
@@ -738,6 +798,9 @@ static void reset_tracking_state(void) {
     g_app.runStartGameTimerFrames = -1;
     g_app.currentGameTimerFrames = -1;
     g_app.clearResultsOnLevelAdvance = false;
+    g_app.maxLevelsPerMinute = 0.0;
+    g_app.paceSampleStart = 0;
+    g_app.paceSampleCount = 0;
 }
 
 static void reset_timer_state(void) {
@@ -1136,9 +1199,13 @@ static void update_timer_from_level(int level) {
     }
 
     g_app.currentLevel = level;
+    record_pace_sample(level);
     if (level > g_app.maxLevel) {
         g_app.maxLevel = level;
         save_max_level();
+    }
+    if (current_levels_per_minute() > g_app.maxLevelsPerMinute) {
+        g_app.maxLevelsPerMinute = current_levels_per_minute();
     }
     record_new_sections(level);
     g_app.previousLevel = level;
@@ -1400,8 +1467,10 @@ static void paint_window(HWND hwnd) {
     const wchar_t *displayModeLabel;
     const wchar_t *gmRequirementText;
     int displayTheoreticalMaxLevel;
+    int displayCurrentLevel;
     int displayMaxLevel;
     int displaySectionCount;
+    double liveLevelsPerMinute;
     wchar_t sectionLabel[32];
     wchar_t gameTimeText[32];
 
@@ -1443,12 +1512,15 @@ static void paint_window(HWND hwnd) {
     displayModeLabel = (config != NULL) ? config->modeLabel : L"-";
     gmRequirementText = NULL;
     displayTheoreticalMaxLevel = (config != NULL) ? config->theoreticalMaxLevel : 0;
+    displayCurrentLevel = g_app.currentLevel;
     displayMaxLevel = g_app.maxLevel;
     displaySectionCount = g_app.sectionCount;
+    liveLevelsPerMinute = current_levels_per_minute();
 
     if (snapshot != NULL && snapshot->valid) {
         displayModeLabel = snapshot->modeLabel;
         displayTheoreticalMaxLevel = snapshot->theoreticalMaxLevel;
+        displayCurrentLevel = snapshot->finalLevel;
         displayMaxLevel = snapshot->maxLevel;
         displaySectionCount = snapshot->sectionCount;
     }
@@ -1472,7 +1544,7 @@ static void paint_window(HWND hwnd) {
                 128,
                 L"Mode: %ls    Current Level: %d    Max Level: %d",
                 displayModeLabel,
-                snapshot != NULL ? displayMaxLevel : g_app.currentLevel,
+                displayCurrentLevel,
                 displayMaxLevel
             );
             draw_text_line(memoryDc, &y, line, RGB(240, 240, 240));
@@ -1483,7 +1555,7 @@ static void paint_window(HWND hwnd) {
 
     if (snapshot == NULL && g_app.modeDetected && g_app.timerRunning && g_app.levelReadable && g_app.currentGameTimerFrames >= 0) {
         format_game_timer(gameTimeText, sizeof(gameTimeText) / sizeof(gameTimeText[0]), g_app.currentGameTimerFrames);
-        swprintf(line, 128, L"Run Time: %ls", gameTimeText);
+        swprintf(line, 128, L"Run Time: %ls    Pace: %.1f lv/min    Max: %.1f lv/min", gameTimeText, liveLevelsPerMinute, g_app.maxLevelsPerMinute);
         draw_text_line(memoryDc, &y, line, RGB(180, 255, 180));
     } else {
         y += 22;
