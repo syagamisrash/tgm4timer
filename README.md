@@ -1,75 +1,141 @@
-# TGM4 Section Timer Prototype
+# TGM4 Section Timer
 
-Tetris The Grand Master 4 process memory reader written in C for Windows.
+Windows用の `Tetris The Grand Master 4` 補助ツールです。  
+ゲームプロセスのメモリから `Level` とゲーム内タイマーを読み取り、100区切りのセクション記録を別ウィンドウに表示します。
 
-## What it does
+## 主な機能
 
-- Attaches to the target process by executable name
-- Reads the in-game `Level` value from memory
-- Starts timing when the observed level becomes `0`
-- Records a section time every time the level crosses `100`, `200`, `300`...
-- Shows current level, total run time, section split times, and best records in a larger window sized for sections up to level 1300
-- Saves best section records in the `save` folder next to the executable
-- Lets you switch between `ASUKA` and `NORMAL` memory layouts from a button
-- Lets you pause and resume processing from a button
+- `tgm4.exe` に自動アタッチ
+- メニュー状態からモードを自動判定
+- `Level 0` を検出すると走行開始
+- セクション到達時に `GameTime` と `Delta` を記録
+- `Back` と `Tet` をセクションごとに記録
+- `Run Time` に現在のゲーム内タイムを表示
+- `Run Time` の右に直近1分ベースの `lv/min` と、その最大値を表示
+- モードごとの `Max Level` を保存
+- モードごとのベスト区間記録を保存
+- 実行中メモリ内に直近20回分の履歴を保持
+- `NORMAL(1.1)`, `NORMAL(2.1)`, `NORMAL(3.1)` ではGM条件を下部表示
 
-## Files
+## 対応モード
 
-- `main.c`: Win32 window + process attach + memory read + section timing
-- `config.h`: change process/module name and the level address settings here
+- `NORMAL`
+- `NORMAL(1.1)`
+- `NORMAL(2.1)`
+- `NORMAL(3.1)`
+- `NORMAL(4.1)`
+- `ASUKA`
+- `ASUKAEASY`
+- `MASTER`
 
-## Address setup
+## 表示内容
 
-Edit `config.h`.
+- `Section`
+  各100区間。理論最大Lvが `999` のモードでは最終区間は `900-999`
+- `GameTime`
+  そのセクション到達時のゲーム内タイマー値。形式は `m:ss.cc`
+- `Delta`
+  そのセクションのゲーム内タイム差分とベスト区間との差
+- `Best`
+  そのモードの保存済みベスト区間
+- `Back`
+  1だけLevelが減った回数
+- `Tet`
+  1回の更新でLevelが4以上増えた回数
 
-### Option 1: direct address
+## 動作ルール
 
-If you already know the final virtual address that stores `Level`, set:
+- 走行開始は `Level 0`
+- `Level 0 -> 1以上` になった瞬間に表を新走行用へクリア
+- 走行中に再び `Level 0` へ戻った場合はリトライ扱い
+- 理論最大Lvを超える値は誤読として無視
+- 2秒未満のセクションは誤読扱いで記録しない
+- モード未判定時は表を出さない
+- 一度有効なモードを検出した後は、関係ないカーソル値に一時的に変わっても直前モードを維持
 
-```c
-static const uintptr_t LEVEL_VALUE_ADDRESS = 0x12345678;
-```
+## 設定ファイル
 
-When this is non-zero, the pointer-chain settings are ignored.
+アドレス情報は `config.txt` に持ちます。  
+実行ファイルと同じディレクトリに置きます。
 
-Current configured value:
+起動時の挙動:
 
-```c
-static const uintptr_t LEVEL_VALUE_ADDRESS = 0;
-static const uintptr_t LEVEL_BASE_OFFSET = 0x00A7CD9C;
+- `config.txt` が存在しない場合
+  内蔵の初期設定値から自動生成
+- `config.txt` が存在する場合
+  内容を読み込んで反映
 
-static const uintptr_t LEVEL_POINTER_OFFSETS[] = {
-    0x94,
-    0x10,
-    0x10,
-    0x10,
-    0x04,
-    0x20
-};
-```
-
-### Option 2: module base + pointer chain
-
-If Cheat Engine shows something like:
+形式はTSVです。
 
 ```text
-TGM4.exe + 00123456 -> +20 -> +18 -> +10
+mode	level_base	level_offsets	timer_base	timer_offsets	cursor_value	menu_cursor_position	theoretical_max_level	initial_timer_frames
+NORMAL	0x00A7E528	0x8,0x30,0x10,0x10,0x10,0xC,0x98	0x00A7E528	0x8,0x30,0x10,0x10,0x10,0xC,0xA0	9	1	999	0
 ```
 
-set:
+列の意味:
 
-```c
-static const uintptr_t LEVEL_VALUE_ADDRESS = 0;
-static const uintptr_t LEVEL_BASE_OFFSET = 0x00123456;
+- `mode`
+  モード名
+- `level_base`
+  `Level` 読取のベースアドレス
+- `level_offsets`
+  `Level` 用オフセット列。カンマ区切り
+- `timer_base`
+  ゲーム内タイマー読取のベースアドレス
+- `timer_offsets`
+  タイマー用オフセット列。カンマ区切り
+- `cursor_value`
+  モード判定に使うゲームモード値
+- `menu_cursor_position`
+  メニューカーソル位置
+- `theoretical_max_level`
+  そのモードの理論最大Lv
+- `initial_timer_frames`
+  タイマー初期値。60FPS基準フレーム数
 
-static const uintptr_t LEVEL_POINTER_OFFSETS[] = {
-    0x20,
-    0x18,
-    0x10
-};
+### 初期タイマーフレームの考え方
+
+- `ASUKA` は `7:00.00` 開始なので `25200`
+- `ASUKAEASY` は `30:00.00` 開始なので `108000`
+- それ以外は `0`
+
+## 保存されるファイル
+
+実行ファイルの横に `save` フォルダを作ります。
+
+- `section_bests_*.txt`
+  モードごとのベスト区間
+- `max_level_*.txt`
+  モードごとの最大到達Lv
+
+履歴20件はメモリ内だけです。アプリ終了で消えます。
+
+## 履歴表示
+
+上部の `←` `→` ボタンで直近20回分を見返せます。
+
+- `←`
+  1つ前の履歴を見る
+- `→`
+  新しい履歴側へ戻る
+
+履歴表示中の `Current Level` は、そのプレイ終了時のLvです。
+
+## ビルド
+
+### MinGW-w64
+
+コンソールを出さずに起動するビルド:
+
+```bat
+gcc -mwindows -municode -O2 -Wall -Wextra -o tgm4_timer.exe main.c -lgdi32 -luser32
 ```
 
-## Build examples
+ランタイムDLL依存を減らしたい場合:
+
+```bat
+gcc -mwindows -municode -O2 -Wall -Wextra -static -static-libgcc -o tgm4_timer.exe main.c -lgdi32 -luser32
+```
 
 ### MSVC
 
@@ -77,28 +143,17 @@ static const uintptr_t LEVEL_POINTER_OFFSETS[] = {
 cl /W4 /O2 /DUNICODE /D_UNICODE main.c user32.lib gdi32.lib
 ```
 
-### MinGW-w64
+## ファイル構成
 
-```bat
-gcc -municode -O2 -Wall -Wextra -o tgm4_timer.exe main.c -lgdi32 -luser32
-```
+- `main.c`
+  本体
+- `config.h`
+  ポーリング間隔などの共通定数
+- `config.txt`
+  メモリアドレス設定。起動時に自動生成可
 
-## Notes
+## 補足
 
-- The prototype assumes `Level` is a 32-bit integer.
-- If the game stores it as `short`, `float`, or BCD-style text, the read type must be changed.
-- A big backward jump in level is treated as a reset and the timer returns to standby.
-- A return to `Level 0` during a run is treated as a retry and restarts the timer immediately.
-- If you cross multiple sections in one poll, the code records them with the same timestamp.
-- The current setup uses the pointer chain `tgm4.exe+00A7CD9C, 94, 10, 10, 10, 4, 20`.
-- `ASUKA` mode uses `tgm4.exe+00A7CD9C` with offsets `20, 4, 10, 10, 10, 94`.
-- `NORMAL` mode uses `tgm4.exe+00A7E528` with offsets `8, 30, 10, c, 28, 10, 9c`.
-- Best records are saved per mode in separate files under `save`:
-  `section_bests_asuka.txt` and `section_bests_normal.txt`.
-- If no save file exists yet, all best times start at `999.000` seconds.
-- Current split lines are green when faster than the previous saved best and red when slower.
-
-## Next recommended step
-
-Find the real `Level` address or pointer chain in Cheat Engine / x64dbg and paste it into `config.h`.
-Once that is known, this tool is ready for a first run.
+- `Level` とゲーム内タイマーは32bit値前提で読んでいます
+- メモリレイアウトが変わった場合は `config.txt` を修正してください
+- 画面表示や履歴はアプリ実行中だけの補助用途を想定しています
