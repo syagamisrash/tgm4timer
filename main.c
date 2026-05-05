@@ -396,10 +396,6 @@ static double frames_to_seconds(int frames) {
     return (double)frames / 60.0;
 }
 
-static double elapsed_seconds_since(ULONGLONG startMs) {
-    return (double)(GetTickCount64() - startMs) / 1000.0;
-}
-
 static double current_levels_per_minute(void) {
     int oldestIndex;
     int newestIndex;
@@ -1185,7 +1181,13 @@ static void update_timer_from_level(int level) {
     }
 
     if (g_app.previousLevel >= 0 && level >= g_app.previousLevel + 4) {
+        int previousSectionIndex;
+
         currentSectionIndex = clamp_section_index_for_level(level, config->theoreticalMaxLevel);
+        previousSectionIndex = clamp_section_index_for_level(g_app.previousLevel, config->theoreticalMaxLevel);
+        if (currentSectionIndex > previousSectionIndex) {
+            currentSectionIndex = previousSectionIndex;
+        }
         g_app.tetrisCounts[currentSectionIndex] += 1;
     }
 
@@ -1380,6 +1382,28 @@ static void format_game_timer(wchar_t *buffer, size_t bufferCount, int frames) {
     swprintf(buffer, bufferCount, L"%d:%02d.%02d", minutes, seconds, centiseconds);
 }
 
+static void format_seconds_as_game_time(wchar_t *buffer, size_t bufferCount, double secondsValue) {
+    int totalCentiseconds;
+    int minutes;
+    int seconds;
+    int centiseconds;
+
+    if (secondsValue < 0.0) {
+        swprintf(buffer, bufferCount, L"-");
+        return;
+    }
+
+    totalCentiseconds = (int)(secondsValue * 100.0 + 0.5);
+    minutes = totalCentiseconds / 6000;
+    seconds = (totalCentiseconds / 100) % 60;
+    centiseconds = totalCentiseconds % 100;
+    if (minutes > 0) {
+        swprintf(buffer, bufferCount, L"%dm%02d.%02ds", minutes, seconds, centiseconds);
+    } else {
+        swprintf(buffer, bufferCount, L"%d.%02ds", seconds, centiseconds);
+    }
+}
+
 static const wchar_t *gm_requirement_text_for_mode(const wchar_t *modeLabel) {
     if (wcscmp(modeLabel, L"NORMAL(1.1)") == 0) {
         return
@@ -1435,6 +1459,39 @@ static void draw_multiline_text(HDC hdc, int x, int y, const wchar_t *text, COLO
     }
 }
 
+static double current_section_progress(int level, int theoreticalMaxLevel) {
+    int sectionIndex;
+    int sectionStart;
+    int sectionEnd;
+
+    if (level < 0 || theoreticalMaxLevel <= 0) {
+        return 0.0;
+    }
+
+    if (level >= theoreticalMaxLevel) {
+        return 1.0;
+    }
+
+    sectionIndex = clamp_section_index_for_level(level, theoreticalMaxLevel);
+    sectionStart = sectionIndex * 100;
+    sectionEnd = (sectionIndex == last_section_index_for_max_level(theoreticalMaxLevel))
+        ? theoreticalMaxLevel
+        : (sectionIndex + 1) * 100;
+
+    if (sectionEnd <= sectionStart) {
+        return 0.0;
+    }
+
+    return (double)(level - sectionStart) / (double)(sectionEnd - sectionStart);
+}
+
+static int current_section_index_for_display(int level, int theoreticalMaxLevel) {
+    if (level < 0 || theoreticalMaxLevel <= 0) {
+        return 0;
+    }
+    return clamp_section_index_for_level(level, theoreticalMaxLevel);
+}
+
 static void paint_window(HWND hwnd) {
     PAINTSTRUCT ps;
     HDC hdc;
@@ -1453,14 +1510,26 @@ static void paint_window(HWND hwnd) {
     int tableRight;
     int rowHeight;
     int visibleSectionCount;
-    int columns[5];
+    int columns[6];
     int cellPadding;
     int sectionWidth;
     int deltaWidth;
+    int sectionTimeWidth;
     int bestWidth;
     int gameTimeWidth;
     int backWidth;
     int tetWidth;
+    int progressBarWidth;
+    int progressBarLeft;
+    int progressBarTop;
+    int progressBarFillWidth;
+    RECT progressOuterRect;
+    RECT progressFillRect;
+    HBRUSH progressOuterBrush;
+    HBRUSH progressFillBrush;
+    HPEN progressPen;
+    HPEN oldPen;
+    HBRUSH oldBrush;
     int infoTop;
     const PointerConfig *config;
     const RunSnapshot *snapshot;
@@ -1471,6 +1540,9 @@ static void paint_window(HWND hwnd) {
     int displayMaxLevel;
     int displaySectionCount;
     double liveLevelsPerMinute;
+    double progressRatio;
+    int progressSectionIndex;
+    int progressTetrisCount;
     wchar_t sectionLabel[32];
     wchar_t gameTimeText[32];
 
@@ -1561,6 +1633,77 @@ static void paint_window(HWND hwnd) {
         y += 22;
     }
 
+    progressRatio = current_section_progress(displayCurrentLevel, displayTheoreticalMaxLevel);
+    progressSectionIndex = current_section_index_for_display(displayCurrentLevel, displayTheoreticalMaxLevel);
+    progressTetrisCount = 0;
+    if (progressSectionIndex >= 0 && progressSectionIndex < MAX_SECTION_COUNT) {
+        progressTetrisCount = snapshot != NULL ? snapshot->tetrisCounts[progressSectionIndex] : g_app.tetrisCounts[progressSectionIndex];
+    }
+    progressBarWidth = (int)((clientRect.right - clientRect.left) * progressRatio);
+    if (progressBarWidth < 0) {
+        progressBarWidth = 0;
+    }
+    if (progressBarWidth > clientRect.right - clientRect.left) {
+        progressBarWidth = clientRect.right - clientRect.left;
+    }
+
+    progressBarTop = y + 8;
+    progressBarLeft = (clientRect.right - clientRect.left - progressBarWidth) / 2;
+    progressBarFillWidth = progressBarWidth;
+
+    progressOuterRect.left = 12;
+    progressOuterRect.top = progressBarTop;
+    progressOuterRect.right = clientRect.right - 12;
+    progressOuterRect.bottom = progressBarTop + 32;
+
+    progressFillRect.left = progressBarLeft;
+    progressFillRect.top = progressBarTop;
+    progressFillRect.right = progressBarLeft + progressBarFillWidth;
+    progressFillRect.bottom = progressBarTop + 32;
+
+    progressOuterBrush = CreateSolidBrush(RGB(40, 40, 40));
+    FillRect(memoryDc, &progressOuterRect, progressOuterBrush);
+    DeleteObject(progressOuterBrush);
+
+    if (progressBarFillWidth > 0) {
+        int red;
+        int green;
+        int blue;
+
+        if (progressTetrisCount > 0) {
+            red = 0 + (int)(120.0 * progressRatio);
+            green = 80 + (int)(160.0 * progressRatio);
+            blue = 180 + (int)(75.0 * progressRatio);
+        } else {
+            red = 96 + (int)(159.0 * progressRatio);
+            green = red;
+            blue = red;
+        }
+
+        if (red > 255) {
+            red = 255;
+        }
+        if (green > 255) {
+            green = 255;
+        }
+        if (blue > 255) {
+            blue = 255;
+        }
+
+        progressFillBrush = CreateSolidBrush(RGB(red, green, blue));
+        FillRect(memoryDc, &progressFillRect, progressFillBrush);
+        DeleteObject(progressFillBrush);
+    }
+
+    progressPen = CreatePen(PS_SOLID, 1, RGB(110, 110, 110));
+    oldPen = (HPEN)SelectObject(memoryDc, progressPen);
+    oldBrush = (HBRUSH)SelectObject(memoryDc, GetStockObject(NULL_BRUSH));
+    Rectangle(memoryDc, progressOuterRect.left, progressOuterRect.top, progressOuterRect.right, progressOuterRect.bottom);
+    SelectObject(memoryDc, oldBrush);
+    SelectObject(memoryDc, oldPen);
+    DeleteObject(progressPen);
+    y = progressBarTop + 32;
+
     if (!g_app.modeDetected && snapshot == NULL) {
         BitBlt(
             hdc,
@@ -1599,6 +1742,7 @@ static void paint_window(HWND hwnd) {
     format_section_label(sectionLabel, sizeof(sectionLabel) / sizeof(sectionLabel[0]), visibleSectionCount - 1, displayTheoreticalMaxLevel);
     sectionWidth = max_int(measure_text_width(memoryDc, L"Section"), measure_text_width(memoryDc, sectionLabel)) + cellPadding;
     deltaWidth = max_int(measure_text_width(memoryDc, L"Delta"), measure_text_width(memoryDc, L"+999.999 s")) + cellPadding;
+    sectionTimeWidth = max_int(measure_text_width(memoryDc, L"SectionTime"), measure_text_width(memoryDc, L"99:59.99")) + cellPadding;
     bestWidth = max_int(measure_text_width(memoryDc, L"Best"), measure_text_width(memoryDc, L"999.999 s")) + cellPadding;
     gameTimeWidth = max_int(measure_text_width(memoryDc, L"GameTime"), measure_text_width(memoryDc, L"99:59.99")) + cellPadding;
     backWidth = max_int(measure_text_width(memoryDc, L"Back"), measure_text_width(memoryDc, L"99")) + cellPadding;
@@ -1607,9 +1751,10 @@ static void paint_window(HWND hwnd) {
     columns[0] = tableLeft + sectionWidth;
     columns[1] = columns[0] + gameTimeWidth;
     columns[2] = columns[1] + deltaWidth;
-    columns[3] = columns[2] + bestWidth;
-    columns[4] = columns[3] + backWidth;
-    tableRight = columns[4] + tetWidth;
+    columns[3] = columns[2] + sectionTimeWidth;
+    columns[4] = columns[3] + bestWidth;
+    columns[5] = columns[4] + backWidth;
+    tableRight = columns[5] + tetWidth;
 
     draw_table_grid(
         memoryDc,
@@ -1618,7 +1763,7 @@ static void paint_window(HWND hwnd) {
         tableRight,
         tableTop + rowHeight * (visibleSectionCount + 1),
         columns,
-        5,
+        6,
         rowHeight,
         visibleSectionCount + 1
     );
@@ -1626,9 +1771,10 @@ static void paint_window(HWND hwnd) {
     draw_table_text(memoryDc, tableLeft + 10, tableTop + 6, L"Section", RGB(255, 230, 160));
     draw_table_text(memoryDc, columns[0] + 10, tableTop + 6, L"GameTime", RGB(255, 230, 160));
     draw_table_text(memoryDc, columns[1] + 10, tableTop + 6, L"Delta", RGB(255, 230, 160));
-    draw_table_text(memoryDc, columns[2] + 10, tableTop + 6, L"Best", RGB(255, 230, 160));
-    draw_table_text(memoryDc, columns[3] + 10, tableTop + 6, L"Back", RGB(255, 230, 160));
-    draw_table_text(memoryDc, columns[4] + 10, tableTop + 6, L"Tet", RGB(255, 230, 160));
+    draw_table_text(memoryDc, columns[2] + 10, tableTop + 6, L"SectionTime", RGB(255, 230, 160));
+    draw_table_text(memoryDc, columns[3] + 10, tableTop + 6, L"Best", RGB(255, 230, 160));
+    draw_table_text(memoryDc, columns[4] + 10, tableTop + 6, L"Back", RGB(255, 230, 160));
+    draw_table_text(memoryDc, columns[5] + 10, tableTop + 6, L"Tet", RGB(255, 230, 160));
 
     for (i = 0; i < visibleSectionCount; ++i) {
         int rowY;
@@ -1648,19 +1794,22 @@ static void paint_window(HWND hwnd) {
 
             swprintf(line, 128, L"%lc%.3f s", deltaSign, delta < 0.0 ? -delta : delta);
             draw_table_text(memoryDc, columns[1] + 10, rowY, line, color_for_delta(delta));
+            format_seconds_as_game_time(line, 128, snapshot != NULL ? snapshot->sectionTimes[i] : g_app.sectionTimes[i]);
+            draw_table_text(memoryDc, columns[2] + 10, rowY, line, RGB(220, 220, 220));
         } else {
             draw_table_text(memoryDc, columns[0] + 10, rowY, L"-", RGB(140, 140, 140));
             draw_table_text(memoryDc, columns[1] + 10, rowY, L"-", RGB(140, 140, 140));
+            draw_table_text(memoryDc, columns[2] + 10, rowY, L"-", RGB(140, 140, 140));
         }
 
         swprintf(line, 128, L"%.3f s", snapshot != NULL ? snapshot->bestSectionTimes[i] : g_app.bestSectionTimes[i]);
-        draw_table_text(memoryDc, columns[2] + 10, rowY, line, RGB(200, 200, 200));
+        draw_table_text(memoryDc, columns[3] + 10, rowY, line, RGB(200, 200, 200));
 
         swprintf(line, 128, L"%d", snapshot != NULL ? snapshot->backstepCounts[i] : g_app.backstepCounts[i]);
-        draw_table_text(memoryDc, columns[3] + 10, rowY, line, RGB(240, 240, 240));
+        draw_table_text(memoryDc, columns[4] + 10, rowY, line, RGB(240, 240, 240));
 
         swprintf(line, 128, L"%d", snapshot != NULL ? snapshot->tetrisCounts[i] : g_app.tetrisCounts[i]);
-        draw_table_text(memoryDc, columns[4] + 10, rowY, line, RGB(240, 240, 240));
+        draw_table_text(memoryDc, columns[5] + 10, rowY, line, RGB(240, 240, 240));
     }
 
     infoTop = tableTop + rowHeight * (visibleSectionCount + 1) + 20;
@@ -1797,7 +1946,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE previousInstance, PWSTR comman
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_CLIPCHILDREN,
         CW_USEDEFAULT,
         CW_USEDEFAULT,
-        630,
+        730,
         900,
         NULL,
         NULL,
