@@ -17,6 +17,17 @@
 #define BEST_TIME_DEFAULT_SECONDS 999.0
 #define ID_BUTTON_HISTORY_PREV 1001
 #define ID_BUTTON_HISTORY_NEXT 1002
+#define ID_BUTTON_SETTINGS 1003
+#define ID_BUTTON_BACK 1004
+#define ID_CHECK_GAMETIME 1101
+#define ID_CHECK_DELTA 1102
+#define ID_CHECK_SECTIONTIME 1103
+#define ID_CHECK_BEST 1104
+#define ID_CHECK_BACKCOL 1105
+#define ID_CHECK_TET 1106
+#define ID_CHECK_PROGRESS 1107
+#define ID_COMBO_RESET_MODE 1201
+#define ID_BUTTON_RESET_BEST 1202
 
 typedef struct PointerConfig {
     const wchar_t *modeLabel;
@@ -53,6 +64,11 @@ typedef struct PaceSample {
     ULONGLONG timeMs;
     int level;
 } PaceSample;
+
+typedef enum AppScreen {
+    SCREEN_MAIN = 0,
+    SCREEN_SETTINGS = 1
+} AppScreen;
 
 static uintptr_t ASUKA_POINTER_OFFSETS[] = {
     0x20,
@@ -285,8 +301,27 @@ typedef struct AppState {
     PaceSample paceSamples[PACE_SAMPLE_COUNT];
     int paceSampleStart;
     int paceSampleCount;
+    AppScreen currentScreen;
+    bool showColumnGameTime;
+    bool showColumnDelta;
+    bool showColumnSectionTime;
+    bool showColumnBest;
+    bool showColumnBack;
+    bool showColumnTet;
+    bool showProgressBar;
     HWND historyPrevButton;
     HWND historyNextButton;
+    HWND settingsButton;
+    HWND backButton;
+    HWND gameTimeCheck;
+    HWND deltaCheck;
+    HWND sectionTimeCheck;
+    HWND bestCheck;
+    HWND backColCheck;
+    HWND tetCheck;
+    HWND progressCheck;
+    HWND resetModeCombo;
+    HWND resetBestButton;
     RunSnapshot history[MAX_HISTORY_COUNT];
     int historyCount;
     int historyViewOffset;
@@ -318,6 +353,10 @@ static const RunSnapshot *current_view_snapshot(void);
 static const wchar_t *gm_requirement_text_for_mode(const wchar_t *modeLabel);
 static void draw_multiline_text(HDC hdc, int x, int y, const wchar_t *text, COLORREF color);
 static void load_pointer_configs(void);
+static void update_screen_controls(void);
+static void reset_best_times_for_config_index(int configIndex);
+static void build_save_paths(void);
+static void save_best_times(void);
 
 static void copy_status_text(const wchar_t *text) {
     lstrcpynW(g_app.statusText, text, (int)(sizeof(g_app.statusText) / sizeof(g_app.statusText[0])));
@@ -339,6 +378,66 @@ static void update_button_labels(void) {
     if (g_app.historyNextButton != NULL) {
         EnableWindow(g_app.historyNextButton, g_app.historyViewOffset > 0);
     }
+}
+
+static void set_checkbox_state(HWND hwnd, bool checked) {
+    if (hwnd != NULL) {
+        SendMessageW(hwnd, BM_SETCHECK, checked ? BST_CHECKED : BST_UNCHECKED, 0);
+    }
+}
+
+static void update_screen_controls(void) {
+    BOOL showMain;
+    BOOL showSettings;
+
+    showMain = g_app.currentScreen == SCREEN_MAIN ? TRUE : FALSE;
+    showSettings = g_app.currentScreen == SCREEN_SETTINGS ? TRUE : FALSE;
+
+    if (g_app.historyPrevButton != NULL) ShowWindow(g_app.historyPrevButton, showMain ? SW_SHOW : SW_HIDE);
+    if (g_app.historyNextButton != NULL) ShowWindow(g_app.historyNextButton, showMain ? SW_SHOW : SW_HIDE);
+    if (g_app.settingsButton != NULL) ShowWindow(g_app.settingsButton, showMain ? SW_SHOW : SW_HIDE);
+
+    if (g_app.backButton != NULL) ShowWindow(g_app.backButton, showSettings ? SW_SHOW : SW_HIDE);
+    if (g_app.gameTimeCheck != NULL) ShowWindow(g_app.gameTimeCheck, showSettings ? SW_SHOW : SW_HIDE);
+    if (g_app.deltaCheck != NULL) ShowWindow(g_app.deltaCheck, showSettings ? SW_SHOW : SW_HIDE);
+    if (g_app.sectionTimeCheck != NULL) ShowWindow(g_app.sectionTimeCheck, showSettings ? SW_SHOW : SW_HIDE);
+    if (g_app.bestCheck != NULL) ShowWindow(g_app.bestCheck, showSettings ? SW_SHOW : SW_HIDE);
+    if (g_app.backColCheck != NULL) ShowWindow(g_app.backColCheck, showSettings ? SW_SHOW : SW_HIDE);
+    if (g_app.tetCheck != NULL) ShowWindow(g_app.tetCheck, showSettings ? SW_SHOW : SW_HIDE);
+    if (g_app.progressCheck != NULL) ShowWindow(g_app.progressCheck, showSettings ? SW_SHOW : SW_HIDE);
+    if (g_app.resetModeCombo != NULL) ShowWindow(g_app.resetModeCombo, showSettings ? SW_SHOW : SW_HIDE);
+    if (g_app.resetBestButton != NULL) ShowWindow(g_app.resetBestButton, showSettings ? SW_SHOW : SW_HIDE);
+
+    set_checkbox_state(g_app.gameTimeCheck, g_app.showColumnGameTime);
+    set_checkbox_state(g_app.deltaCheck, g_app.showColumnDelta);
+    set_checkbox_state(g_app.sectionTimeCheck, g_app.showColumnSectionTime);
+    set_checkbox_state(g_app.bestCheck, g_app.showColumnBest);
+    set_checkbox_state(g_app.backColCheck, g_app.showColumnBack);
+    set_checkbox_state(g_app.tetCheck, g_app.showColumnTet);
+    set_checkbox_state(g_app.progressCheck, g_app.showProgressBar);
+
+    update_button_labels();
+}
+
+static void reset_best_times_for_config_index(int configIndex) {
+    int oldConfigIndex;
+    int i;
+
+    if (configIndex < 0 || configIndex >= (int)(sizeof(POINTER_CONFIGS) / sizeof(POINTER_CONFIGS[0]))) {
+        return;
+    }
+
+    oldConfigIndex = g_app.currentConfigIndex;
+    g_app.currentConfigIndex = configIndex;
+    build_save_paths();
+    for (i = 0; i < MAX_SECTION_COUNT; ++i) {
+        g_app.bestSectionTimes[i] = BEST_TIME_DEFAULT_SECONDS;
+    }
+    save_best_times();
+    if (oldConfigIndex == configIndex) {
+        load_best_times();
+    }
+    g_app.currentConfigIndex = oldConfigIndex;
 }
 
 static void archive_current_results_if_any(void) {
@@ -1511,6 +1610,9 @@ static void paint_window(HWND hwnd) {
     int rowHeight;
     int visibleSectionCount;
     int columns[6];
+    int columnX[6];
+    bool columnVisible[6];
+    int visibleColumnCount;
     int cellPadding;
     int sectionWidth;
     int deltaWidth;
@@ -1581,6 +1683,36 @@ static void paint_window(HWND hwnd) {
     SetBkMode(memoryDc, TRANSPARENT);
     config = current_pointer_config();
     snapshot = current_view_snapshot();
+
+    if (g_app.currentScreen == SCREEN_SETTINGS) {
+        y = 48;
+        draw_text_line(memoryDc, &y, L"TGM4 Section Timer - Settings", RGB(240, 240, 240));
+        y += 10;
+        draw_text_line(memoryDc, &y, L"Visible Columns", RGB(255, 230, 160));
+        y += 220;
+        draw_text_line(memoryDc, &y, L"Reset Best Records", RGB(255, 230, 160));
+        draw_text_line(memoryDc, &y, L"Select a mode and reset best section times to 999.000 s", RGB(200, 220, 255));
+
+        BitBlt(
+            hdc,
+            0,
+            0,
+            clientRect.right - clientRect.left,
+            clientRect.bottom - clientRect.top,
+            memoryDc,
+            0,
+            0,
+            SRCCOPY
+        );
+
+        SelectObject(memoryDc, oldFont);
+        SelectObject(memoryDc, oldBitmap);
+        DeleteObject(font);
+        DeleteObject(backBufferBitmap);
+        DeleteDC(memoryDc);
+        EndPaint(hwnd, &ps);
+        return;
+    }
     displayModeLabel = (config != NULL) ? config->modeLabel : L"-";
     gmRequirementText = NULL;
     displayTheoreticalMaxLevel = (config != NULL) ? config->theoreticalMaxLevel : 0;
@@ -1597,6 +1729,12 @@ static void paint_window(HWND hwnd) {
         displaySectionCount = snapshot->sectionCount;
     }
     gmRequirementText = gm_requirement_text_for_mode(displayModeLabel);
+    columnVisible[0] = g_app.showColumnGameTime;
+    columnVisible[1] = g_app.showColumnDelta;
+    columnVisible[2] = g_app.showColumnSectionTime;
+    columnVisible[3] = g_app.showColumnBest;
+    columnVisible[4] = g_app.showColumnBack;
+    columnVisible[5] = g_app.showColumnTet;
 
     y = 12;
     draw_text_line(memoryDc, &y, L"TGM4 Section Timer", RGB(240, 240, 240));
@@ -1633,76 +1771,72 @@ static void paint_window(HWND hwnd) {
         y += 22;
     }
 
-    progressRatio = current_section_progress(displayCurrentLevel, displayTheoreticalMaxLevel);
-    progressSectionIndex = current_section_index_for_display(displayCurrentLevel, displayTheoreticalMaxLevel);
-    progressTetrisCount = 0;
-    if (progressSectionIndex >= 0 && progressSectionIndex < MAX_SECTION_COUNT) {
-        progressTetrisCount = snapshot != NULL ? snapshot->tetrisCounts[progressSectionIndex] : g_app.tetrisCounts[progressSectionIndex];
-    }
-    progressBarWidth = (int)((clientRect.right - clientRect.left) * progressRatio);
-    if (progressBarWidth < 0) {
-        progressBarWidth = 0;
-    }
-    if (progressBarWidth > clientRect.right - clientRect.left) {
-        progressBarWidth = clientRect.right - clientRect.left;
-    }
+    if (g_app.showProgressBar) {
+        progressRatio = current_section_progress(displayCurrentLevel, displayTheoreticalMaxLevel);
+        progressSectionIndex = current_section_index_for_display(displayCurrentLevel, displayTheoreticalMaxLevel);
+        progressTetrisCount = 0;
+        if (progressSectionIndex >= 0 && progressSectionIndex < MAX_SECTION_COUNT) {
+            progressTetrisCount = snapshot != NULL ? snapshot->tetrisCounts[progressSectionIndex] : g_app.tetrisCounts[progressSectionIndex];
+        }
+        progressBarWidth = (int)((clientRect.right - clientRect.left) * progressRatio);
+        if (progressBarWidth < 0) progressBarWidth = 0;
+        if (progressBarWidth > clientRect.right - clientRect.left) progressBarWidth = clientRect.right - clientRect.left;
 
-    progressBarTop = y + 8;
-    progressBarLeft = (clientRect.right - clientRect.left - progressBarWidth) / 2;
-    progressBarFillWidth = progressBarWidth;
+        progressBarTop = y + 8;
+        progressBarLeft = (clientRect.right - clientRect.left - progressBarWidth) / 2;
+        progressBarFillWidth = progressBarWidth;
 
-    progressOuterRect.left = 12;
-    progressOuterRect.top = progressBarTop;
-    progressOuterRect.right = clientRect.right - 12;
-    progressOuterRect.bottom = progressBarTop + 32;
+        progressOuterRect.left = 12;
+        progressOuterRect.top = progressBarTop;
+        progressOuterRect.right = clientRect.right - 12;
+        progressOuterRect.bottom = progressBarTop + 32;
 
-    progressFillRect.left = progressBarLeft;
-    progressFillRect.top = progressBarTop;
-    progressFillRect.right = progressBarLeft + progressBarFillWidth;
-    progressFillRect.bottom = progressBarTop + 32;
+        progressFillRect.left = progressBarLeft;
+        progressFillRect.top = progressBarTop;
+        progressFillRect.right = progressBarLeft + progressBarFillWidth;
+        progressFillRect.bottom = progressBarTop + 32;
 
-    progressOuterBrush = CreateSolidBrush(RGB(40, 40, 40));
-    FillRect(memoryDc, &progressOuterRect, progressOuterBrush);
-    DeleteObject(progressOuterBrush);
+        progressOuterBrush = CreateSolidBrush(RGB(40, 40, 40));
+        FillRect(memoryDc, &progressOuterRect, progressOuterBrush);
+        DeleteObject(progressOuterBrush);
 
-    if (progressBarFillWidth > 0) {
-        int red;
-        int green;
-        int blue;
+        if (progressBarFillWidth > 0) {
+            int red;
+            int green;
+            int blue;
 
-        if (progressTetrisCount > 0) {
-            red = 0 + (int)(120.0 * progressRatio);
-            green = 80 + (int)(160.0 * progressRatio);
-            blue = 180 + (int)(75.0 * progressRatio);
-        } else {
-            red = 96 + (int)(159.0 * progressRatio);
-            green = red;
-            blue = red;
+            if (progressTetrisCount > 0) {
+                if (progressRatio >= 0.96) {
+                    red = 144; green = 238; blue = 144;
+                } else {
+                    red = 0 + (int)(120.0 * progressRatio);
+                    green = 80 + (int)(160.0 * progressRatio);
+                    blue = 180 + (int)(75.0 * progressRatio);
+                }
+            } else {
+                red = 96 + (int)(159.0 * progressRatio);
+                green = red;
+                blue = red;
+            }
+
+            if (red > 255) red = 255;
+            if (green > 255) green = 255;
+            if (blue > 255) blue = 255;
+
+            progressFillBrush = CreateSolidBrush(RGB(red, green, blue));
+            FillRect(memoryDc, &progressFillRect, progressFillBrush);
+            DeleteObject(progressFillBrush);
         }
 
-        if (red > 255) {
-            red = 255;
-        }
-        if (green > 255) {
-            green = 255;
-        }
-        if (blue > 255) {
-            blue = 255;
-        }
-
-        progressFillBrush = CreateSolidBrush(RGB(red, green, blue));
-        FillRect(memoryDc, &progressFillRect, progressFillBrush);
-        DeleteObject(progressFillBrush);
+        progressPen = CreatePen(PS_SOLID, 1, RGB(110, 110, 110));
+        oldPen = (HPEN)SelectObject(memoryDc, progressPen);
+        oldBrush = (HBRUSH)SelectObject(memoryDc, GetStockObject(NULL_BRUSH));
+        Rectangle(memoryDc, progressOuterRect.left, progressOuterRect.top, progressOuterRect.right, progressOuterRect.bottom);
+        SelectObject(memoryDc, oldBrush);
+        SelectObject(memoryDc, oldPen);
+        DeleteObject(progressPen);
+        y = progressBarTop + 32;
     }
-
-    progressPen = CreatePen(PS_SOLID, 1, RGB(110, 110, 110));
-    oldPen = (HPEN)SelectObject(memoryDc, progressPen);
-    oldBrush = (HBRUSH)SelectObject(memoryDc, GetStockObject(NULL_BRUSH));
-    Rectangle(memoryDc, progressOuterRect.left, progressOuterRect.top, progressOuterRect.right, progressOuterRect.bottom);
-    SelectObject(memoryDc, oldBrush);
-    SelectObject(memoryDc, oldPen);
-    DeleteObject(progressPen);
-    y = progressBarTop + 32;
 
     if (!g_app.modeDetected && snapshot == NULL) {
         BitBlt(
@@ -1748,13 +1882,16 @@ static void paint_window(HWND hwnd) {
     backWidth = max_int(measure_text_width(memoryDc, L"Back"), measure_text_width(memoryDc, L"99")) + cellPadding;
     tetWidth = max_int(measure_text_width(memoryDc, L"Tet"), measure_text_width(memoryDc, L"99")) + cellPadding;
 
+    visibleColumnCount = 0;
     columns[0] = tableLeft + sectionWidth;
-    columns[1] = columns[0] + gameTimeWidth;
-    columns[2] = columns[1] + deltaWidth;
-    columns[3] = columns[2] + sectionTimeWidth;
-    columns[4] = columns[3] + bestWidth;
-    columns[5] = columns[4] + backWidth;
-    tableRight = columns[5] + tetWidth;
+    if (columnVisible[0]) columnX[visibleColumnCount++] = columns[visibleColumnCount == 1 ? 0 : 0];
+    tableRight = columns[0];
+    if (columnVisible[0]) { tableRight += gameTimeWidth; columnX[0] = columns[0]; }
+    if (columnVisible[1]) { columnX[visibleColumnCount++] = tableRight; tableRight += deltaWidth; }
+    if (columnVisible[2]) { columnX[visibleColumnCount++] = tableRight; tableRight += sectionTimeWidth; }
+    if (columnVisible[3]) { columnX[visibleColumnCount++] = tableRight; tableRight += bestWidth; }
+    if (columnVisible[4]) { columnX[visibleColumnCount++] = tableRight; tableRight += backWidth; }
+    if (columnVisible[5]) { columnX[visibleColumnCount++] = tableRight; tableRight += tetWidth; }
 
     draw_table_grid(
         memoryDc,
@@ -1762,19 +1899,20 @@ static void paint_window(HWND hwnd) {
         tableTop,
         tableRight,
         tableTop + rowHeight * (visibleSectionCount + 1),
-        columns,
-        6,
+        columnX,
+        visibleColumnCount,
         rowHeight,
         visibleSectionCount + 1
     );
 
     draw_table_text(memoryDc, tableLeft + 10, tableTop + 6, L"Section", RGB(255, 230, 160));
-    draw_table_text(memoryDc, columns[0] + 10, tableTop + 6, L"GameTime", RGB(255, 230, 160));
-    draw_table_text(memoryDc, columns[1] + 10, tableTop + 6, L"Delta", RGB(255, 230, 160));
-    draw_table_text(memoryDc, columns[2] + 10, tableTop + 6, L"SectionTime", RGB(255, 230, 160));
-    draw_table_text(memoryDc, columns[3] + 10, tableTop + 6, L"Best", RGB(255, 230, 160));
-    draw_table_text(memoryDc, columns[4] + 10, tableTop + 6, L"Back", RGB(255, 230, 160));
-    draw_table_text(memoryDc, columns[5] + 10, tableTop + 6, L"Tet", RGB(255, 230, 160));
+    visibleColumnCount = 0;
+    if (columnVisible[0]) draw_table_text(memoryDc, columnX[visibleColumnCount++] + 10, tableTop + 6, L"GameTime", RGB(255, 230, 160));
+    if (columnVisible[1]) draw_table_text(memoryDc, columnX[visibleColumnCount++] + 10, tableTop + 6, L"Delta", RGB(255, 230, 160));
+    if (columnVisible[2]) draw_table_text(memoryDc, columnX[visibleColumnCount++] + 10, tableTop + 6, L"SectionTime", RGB(255, 230, 160));
+    if (columnVisible[3]) draw_table_text(memoryDc, columnX[visibleColumnCount++] + 10, tableTop + 6, L"Best", RGB(255, 230, 160));
+    if (columnVisible[4]) draw_table_text(memoryDc, columnX[visibleColumnCount++] + 10, tableTop + 6, L"Back", RGB(255, 230, 160));
+    if (columnVisible[5]) draw_table_text(memoryDc, columnX[visibleColumnCount++] + 10, tableTop + 6, L"Tet", RGB(255, 230, 160));
 
     for (i = 0; i < visibleSectionCount; ++i) {
         int rowY;
@@ -1788,28 +1926,48 @@ static void paint_window(HWND hwnd) {
         format_section_label(line, 128, i, displayTheoreticalMaxLevel);
         draw_table_text(memoryDc, tableLeft + 10, rowY, line, RGB(240, 240, 240));
 
-        if (i < displaySectionCount && (snapshot != NULL ? snapshot->sectionTimes[i] : g_app.sectionTimes[i]) >= 0.0) {
-            format_game_timer(line, 128, snapshot != NULL ? snapshot->sectionGameTimerFrames[i] : g_app.sectionGameTimerFrames[i]);
-            draw_table_text(memoryDc, columns[0] + 10, rowY, line, color_for_delta(delta));
-
-            swprintf(line, 128, L"%lc%.3f s", deltaSign, delta < 0.0 ? -delta : delta);
-            draw_table_text(memoryDc, columns[1] + 10, rowY, line, color_for_delta(delta));
-            format_seconds_as_game_time(line, 128, snapshot != NULL ? snapshot->sectionTimes[i] : g_app.sectionTimes[i]);
-            draw_table_text(memoryDc, columns[2] + 10, rowY, line, RGB(220, 220, 220));
-        } else {
-            draw_table_text(memoryDc, columns[0] + 10, rowY, L"-", RGB(140, 140, 140));
-            draw_table_text(memoryDc, columns[1] + 10, rowY, L"-", RGB(140, 140, 140));
-            draw_table_text(memoryDc, columns[2] + 10, rowY, L"-", RGB(140, 140, 140));
+        visibleColumnCount = 0;
+        if (columnVisible[0]) {
+            if (i < displaySectionCount && (snapshot != NULL ? snapshot->sectionTimes[i] : g_app.sectionTimes[i]) >= 0.0) {
+                format_game_timer(line, 128, snapshot != NULL ? snapshot->sectionGameTimerFrames[i] : g_app.sectionGameTimerFrames[i]);
+                draw_table_text(memoryDc, columnX[visibleColumnCount] + 10, rowY, line, color_for_delta(delta));
+            } else {
+                draw_table_text(memoryDc, columnX[visibleColumnCount] + 10, rowY, L"-", RGB(140, 140, 140));
+            }
+            visibleColumnCount += 1;
         }
-
-        swprintf(line, 128, L"%.3f s", snapshot != NULL ? snapshot->bestSectionTimes[i] : g_app.bestSectionTimes[i]);
-        draw_table_text(memoryDc, columns[3] + 10, rowY, line, RGB(200, 200, 200));
-
-        swprintf(line, 128, L"%d", snapshot != NULL ? snapshot->backstepCounts[i] : g_app.backstepCounts[i]);
-        draw_table_text(memoryDc, columns[4] + 10, rowY, line, RGB(240, 240, 240));
-
-        swprintf(line, 128, L"%d", snapshot != NULL ? snapshot->tetrisCounts[i] : g_app.tetrisCounts[i]);
-        draw_table_text(memoryDc, columns[5] + 10, rowY, line, RGB(240, 240, 240));
+        if (columnVisible[1]) {
+            if (i < displaySectionCount && (snapshot != NULL ? snapshot->sectionTimes[i] : g_app.sectionTimes[i]) >= 0.0) {
+                swprintf(line, 128, L"%lc%.3f s", deltaSign, delta < 0.0 ? -delta : delta);
+                draw_table_text(memoryDc, columnX[visibleColumnCount] + 10, rowY, line, color_for_delta(delta));
+            } else {
+                draw_table_text(memoryDc, columnX[visibleColumnCount] + 10, rowY, L"-", RGB(140, 140, 140));
+            }
+            visibleColumnCount += 1;
+        }
+        if (columnVisible[2]) {
+            if (i < displaySectionCount && (snapshot != NULL ? snapshot->sectionTimes[i] : g_app.sectionTimes[i]) >= 0.0) {
+                format_seconds_as_game_time(line, 128, snapshot != NULL ? snapshot->sectionTimes[i] : g_app.sectionTimes[i]);
+                draw_table_text(memoryDc, columnX[visibleColumnCount] + 10, rowY, line, RGB(220, 220, 220));
+            } else {
+                draw_table_text(memoryDc, columnX[visibleColumnCount] + 10, rowY, L"-", RGB(140, 140, 140));
+            }
+            visibleColumnCount += 1;
+        }
+        if (columnVisible[3]) {
+            swprintf(line, 128, L"%.3f s", snapshot != NULL ? snapshot->bestSectionTimes[i] : g_app.bestSectionTimes[i]);
+            draw_table_text(memoryDc, columnX[visibleColumnCount] + 10, rowY, line, RGB(200, 200, 200));
+            visibleColumnCount += 1;
+        }
+        if (columnVisible[4]) {
+            swprintf(line, 128, L"%d", snapshot != NULL ? snapshot->backstepCounts[i] : g_app.backstepCounts[i]);
+            draw_table_text(memoryDc, columnX[visibleColumnCount] + 10, rowY, line, RGB(240, 240, 240));
+            visibleColumnCount += 1;
+        }
+        if (columnVisible[5]) {
+            swprintf(line, 128, L"%d", snapshot != NULL ? snapshot->tetrisCounts[i] : g_app.tetrisCounts[i]);
+            draw_table_text(memoryDc, columnX[visibleColumnCount] + 10, rowY, line, RGB(240, 240, 240));
+        }
     }
 
     infoTop = tableTop + rowHeight * (visibleSectionCount + 1) + 20;
@@ -1841,6 +1999,7 @@ static void paint_window(HWND hwnd) {
 static LRESULT CALLBACK window_proc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
     case WM_CREATE:
+        g_app.settingsButton = CreateWindowW(L"BUTTON", L"Setting", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 410, 8, 80, 28, hwnd, (HMENU)ID_BUTTON_SETTINGS, ((LPCREATESTRUCT)lParam)->hInstance, NULL);
         g_app.historyPrevButton = CreateWindowW(
             L"BUTTON",
             L"<-",
@@ -1867,12 +2026,44 @@ static LRESULT CALLBACK window_proc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             ((LPCREATESTRUCT)lParam)->hInstance,
             NULL
         );
+        g_app.backButton = CreateWindowW(L"BUTTON", L"Back", WS_CHILD | BS_PUSHBUTTON, 12, 8, 80, 28, hwnd, (HMENU)ID_BUTTON_BACK, ((LPCREATESTRUCT)lParam)->hInstance, NULL);
+        g_app.gameTimeCheck = CreateWindowW(L"BUTTON", L"Show GameTime", WS_CHILD | BS_AUTOCHECKBOX, 24, 110, 220, 24, hwnd, (HMENU)ID_CHECK_GAMETIME, ((LPCREATESTRUCT)lParam)->hInstance, NULL);
+        g_app.deltaCheck = CreateWindowW(L"BUTTON", L"Show Delta", WS_CHILD | BS_AUTOCHECKBOX, 24, 140, 220, 24, hwnd, (HMENU)ID_CHECK_DELTA, ((LPCREATESTRUCT)lParam)->hInstance, NULL);
+        g_app.sectionTimeCheck = CreateWindowW(L"BUTTON", L"Show SectionTime", WS_CHILD | BS_AUTOCHECKBOX, 24, 170, 220, 24, hwnd, (HMENU)ID_CHECK_SECTIONTIME, ((LPCREATESTRUCT)lParam)->hInstance, NULL);
+        g_app.bestCheck = CreateWindowW(L"BUTTON", L"Show Best", WS_CHILD | BS_AUTOCHECKBOX, 24, 200, 220, 24, hwnd, (HMENU)ID_CHECK_BEST, ((LPCREATESTRUCT)lParam)->hInstance, NULL);
+        g_app.backColCheck = CreateWindowW(L"BUTTON", L"Show Back", WS_CHILD | BS_AUTOCHECKBOX, 24, 230, 220, 24, hwnd, (HMENU)ID_CHECK_BACKCOL, ((LPCREATESTRUCT)lParam)->hInstance, NULL);
+        g_app.tetCheck = CreateWindowW(L"BUTTON", L"Show Tet", WS_CHILD | BS_AUTOCHECKBOX, 24, 260, 220, 24, hwnd, (HMENU)ID_CHECK_TET, ((LPCREATESTRUCT)lParam)->hInstance, NULL);
+        g_app.progressCheck = CreateWindowW(L"BUTTON", L"Show Progress Bar", WS_CHILD | BS_AUTOCHECKBOX, 24, 290, 220, 24, hwnd, (HMENU)ID_CHECK_PROGRESS, ((LPCREATESTRUCT)lParam)->hInstance, NULL);
+        g_app.resetModeCombo = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | CBS_DROPDOWNLIST | WS_VSCROLL, 24, 370, 240, 200, hwnd, (HMENU)ID_COMBO_RESET_MODE, ((LPCREATESTRUCT)lParam)->hInstance, NULL);
+        g_app.resetBestButton = CreateWindowW(L"BUTTON", L"Reset Best To 999s", WS_CHILD | BS_PUSHBUTTON, 280, 370, 180, 28, hwnd, (HMENU)ID_BUTTON_RESET_BEST, ((LPCREATESTRUCT)lParam)->hInstance, NULL);
+        {
+            int i;
+            for (i = 0; i < (int)(sizeof(POINTER_CONFIGS) / sizeof(POINTER_CONFIGS[0])); ++i) {
+                SendMessageW(g_app.resetModeCombo, CB_ADDSTRING, 0, (LPARAM)POINTER_CONFIGS[i].modeLabel);
+            }
+            SendMessageW(g_app.resetModeCombo, CB_SETCURSEL, 0, 0);
+        }
         update_button_labels();
+        update_screen_controls();
         SetTimer(hwnd, 1, POLL_INTERVAL_MS, NULL);
         SetTimer(hwnd, 2, WINDOW_REFRESH_MS, NULL);
         return 0;
 
     case WM_COMMAND:
+        if (LOWORD(wParam) == ID_BUTTON_SETTINGS) {
+            g_app.currentScreen = SCREEN_SETTINGS;
+            update_screen_controls();
+            InvalidateRect(hwnd, NULL, TRUE);
+            return 0;
+        }
+
+        if (LOWORD(wParam) == ID_BUTTON_BACK) {
+            g_app.currentScreen = SCREEN_MAIN;
+            update_screen_controls();
+            InvalidateRect(hwnd, NULL, TRUE);
+            return 0;
+        }
+
         if (LOWORD(wParam) == ID_BUTTON_HISTORY_PREV) {
             if (g_app.historyViewOffset < g_app.historyCount) {
                 g_app.historyViewOffset += 1;
@@ -1888,6 +2079,29 @@ static LRESULT CALLBACK window_proc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                 update_button_labels();
                 InvalidateRect(hwnd, NULL, FALSE);
             }
+            return 0;
+        }
+
+        if (LOWORD(wParam) == ID_CHECK_GAMETIME) g_app.showColumnGameTime = SendMessageW(g_app.gameTimeCheck, BM_GETCHECK, 0, 0) == BST_CHECKED;
+        if (LOWORD(wParam) == ID_CHECK_DELTA) g_app.showColumnDelta = SendMessageW(g_app.deltaCheck, BM_GETCHECK, 0, 0) == BST_CHECKED;
+        if (LOWORD(wParam) == ID_CHECK_SECTIONTIME) g_app.showColumnSectionTime = SendMessageW(g_app.sectionTimeCheck, BM_GETCHECK, 0, 0) == BST_CHECKED;
+        if (LOWORD(wParam) == ID_CHECK_BEST) g_app.showColumnBest = SendMessageW(g_app.bestCheck, BM_GETCHECK, 0, 0) == BST_CHECKED;
+        if (LOWORD(wParam) == ID_CHECK_BACKCOL) g_app.showColumnBack = SendMessageW(g_app.backColCheck, BM_GETCHECK, 0, 0) == BST_CHECKED;
+        if (LOWORD(wParam) == ID_CHECK_TET) g_app.showColumnTet = SendMessageW(g_app.tetCheck, BM_GETCHECK, 0, 0) == BST_CHECKED;
+        if (LOWORD(wParam) == ID_CHECK_PROGRESS) g_app.showProgressBar = SendMessageW(g_app.progressCheck, BM_GETCHECK, 0, 0) == BST_CHECKED;
+
+        if (LOWORD(wParam) == ID_BUTTON_RESET_BEST) {
+            int selection;
+            selection = (int)SendMessageW(g_app.resetModeCombo, CB_GETCURSEL, 0, 0);
+            if (selection >= 0) {
+                reset_best_times_for_config_index(selection);
+            }
+            InvalidateRect(hwnd, NULL, TRUE);
+            return 0;
+        }
+
+        if (HIWORD(wParam) == BN_CLICKED) {
+            InvalidateRect(hwnd, NULL, TRUE);
             return 0;
         }
         return 0;
@@ -1926,6 +2140,14 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE previousInstance, PWSTR comman
     (void)commandLine;
 
     g_app.currentConfigIndex = -1;
+    g_app.currentScreen = SCREEN_MAIN;
+    g_app.showColumnGameTime = true;
+    g_app.showColumnDelta = true;
+    g_app.showColumnSectionTime = true;
+    g_app.showColumnBest = true;
+    g_app.showColumnBack = true;
+    g_app.showColumnTet = true;
+    g_app.showProgressBar = true;
     reset_timer_state();
     load_pointer_configs();
     copy_status_text(L"Starting...");
