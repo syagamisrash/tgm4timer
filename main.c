@@ -1778,9 +1778,9 @@ static void paint_window(HWND hwnd) {
         if (progressSectionIndex >= 0 && progressSectionIndex < MAX_SECTION_COUNT) {
             progressTetrisCount = snapshot != NULL ? snapshot->tetrisCounts[progressSectionIndex] : g_app.tetrisCounts[progressSectionIndex];
         }
-        progressBarWidth = (int)((clientRect.right - clientRect.left) * progressRatio);
+        progressBarWidth = (int)((clientRect.right - clientRect.left - 24) * progressRatio);
         if (progressBarWidth < 0) progressBarWidth = 0;
-        if (progressBarWidth > clientRect.right - clientRect.left) progressBarWidth = clientRect.right - clientRect.left;
+        if (progressBarWidth > clientRect.right - clientRect.left - 24) progressBarWidth = clientRect.right - clientRect.left - 24;
 
         progressBarTop = y + 8;
         progressBarLeft = (clientRect.right - clientRect.left - progressBarWidth) / 2;
