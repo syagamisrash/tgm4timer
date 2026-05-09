@@ -128,19 +128,19 @@ NORMAL	0x00A7E528	0x8,0x30,0x10,0x10,0x10,0xC,0x98	0x00A7E528	0x8,0x30,0x10,0x10
 コンソールを出さずに起動するビルド:
 
 ```bat
-gcc -mwindows -municode -O2 -Wall -Wextra -o tgm4_timer.exe main.c -lgdi32 -luser32
+gcc -mwindows -municode -O2 -Wall -Wextra -o tgm4_timer.exe main.c ui.c config_store.c -lgdi32 -luser32
 ```
 
 ランタイムDLL依存を減らしたい場合:
 
 ```bat
-gcc -mwindows -municode -O2 -Wall -Wextra -static -static-libgcc -o tgm4_timer.exe main.c -lgdi32 -luser32
+gcc -mwindows -municode -O2 -Wall -Wextra -static -static-libgcc -o tgm4_timer.exe main.c ui.c config_store.c -lgdi32 -luser32
 ```
 
 ### MSVC
 
 ```bat
-cl /W4 /O2 /DUNICODE /D_UNICODE main.c user32.lib gdi32.lib
+cl /W4 /O2 /DUNICODE /D_UNICODE main.c ui.c config_store.c user32.lib gdi32.lib
 ```
 
 ## ファイル構成
