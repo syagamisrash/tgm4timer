@@ -1,38 +1,14 @@
 #include "app.h"
 
-static uintptr_t ASUKA_POINTER_OFFSETS[] = {
-    0x20, 0x04, 0x10, 0x10, 0x10, 0x94
-};
-
-static uintptr_t ASUKA_TIMER_POINTER_OFFSETS[] = {
-    0x20, 0x04, 0x10, 0x10, 0x10, 0x9C
-};
-
-static uintptr_t NORMAL_POINTER_OFFSETS[] = {
-    0x08, 0x30, 0x10, 0x10, 0x10, 0x0C, 0x98
-};
-
-static uintptr_t NORMAL_TIMER_POINTER_OFFSETS[] = {
-    0x08, 0x30, 0x10, 0x10, 0x10, 0x0C, 0xA0
-};
-
-static uintptr_t NORMAL_EX_POINTER_OFFSETS[] = {
-    0x08, 0x30, 0x2c, 0x0C, 0x0c, 0x1a4
-};
-
-static uintptr_t NORMAL_EX_TIMER_POINTER_OFFSETS[] = {
-    0x08, 0x30, 0x2C, 0x0C, 0x0C, 0x1DC
-};
-
 PointerConfig POINTER_CONFIGS[] = {
-    { L"NORMAL", 0x00A7E528, NORMAL_POINTER_OFFSETS, ARRAY_COUNT(NORMAL_POINTER_OFFSETS), 0x00A7E528, NORMAL_TIMER_POINTER_OFFSETS, ARRAY_COUNT(NORMAL_TIMER_POINTER_OFFSETS), 9, 1, 999, 0, L"section_bests_normal.txt", L"max_level_normal.txt" },
-    { L"NORMAL(1.1)", 0x00A7E528, NORMAL_EX_POINTER_OFFSETS, ARRAY_COUNT(NORMAL_EX_POINTER_OFFSETS), 0x00A7E528, NORMAL_EX_TIMER_POINTER_OFFSETS, ARRAY_COUNT(NORMAL_EX_TIMER_POINTER_OFFSETS), 15, 1, 999, 0, L"section_bests_normal_1_1.txt", L"max_level_normal_1_1.txt" },
-    { L"NORMAL(2.1)", 0x00A7E528, NORMAL_EX_POINTER_OFFSETS, ARRAY_COUNT(NORMAL_EX_POINTER_OFFSETS), 0x00A7E528, NORMAL_EX_TIMER_POINTER_OFFSETS, ARRAY_COUNT(NORMAL_EX_TIMER_POINTER_OFFSETS), 16, 1, 999, 0, L"section_bests_normal_2_1.txt", L"max_level_normal_2_1.txt" },
-    { L"NORMAL(3.1)", 0x00A7E528, NORMAL_EX_POINTER_OFFSETS, ARRAY_COUNT(NORMAL_EX_POINTER_OFFSETS), 0x00A7E528, NORMAL_EX_TIMER_POINTER_OFFSETS, ARRAY_COUNT(NORMAL_EX_TIMER_POINTER_OFFSETS), 17, 1, 2000, 0, L"section_bests_normal_3_1.txt", L"max_level_normal_3_1.txt" },
-    { L"NORMAL(4.1)", 0x00A7E528, NORMAL_EX_POINTER_OFFSETS, ARRAY_COUNT(NORMAL_EX_POINTER_OFFSETS), 0x00A7E528, NORMAL_EX_TIMER_POINTER_OFFSETS, ARRAY_COUNT(NORMAL_EX_TIMER_POINTER_OFFSETS), 18, 1, 999, 0, L"section_bests_normal_4_1.txt", L"max_level_normal_4_1.txt" },
-    { L"ASUKA", 0x00A7CD9C, ASUKA_POINTER_OFFSETS, ARRAY_COUNT(ASUKA_POINTER_OFFSETS), 0x00A7CD9C, ASUKA_TIMER_POINTER_OFFSETS, ARRAY_COUNT(ASUKA_TIMER_POINTER_OFFSETS), 5, 2, 1300, 7 * 60 * 60, L"section_bests_asuka.txt", L"max_level_asuka.txt" },
-    { L"ASUKAEASY", 0x00A7CD9C, ASUKA_POINTER_OFFSETS, ARRAY_COUNT(ASUKA_POINTER_OFFSETS), 0x00A7CD9C, ASUKA_TIMER_POINTER_OFFSETS, ARRAY_COUNT(ASUKA_TIMER_POINTER_OFFSETS), 10, 2, 999, 30 * 60 * 60, L"section_bests_asukaeasy.txt", L"max_level_asukaeasy.txt" },
-    { L"MASTER", 0x00A7E528, NORMAL_EX_POINTER_OFFSETS, ARRAY_COUNT(NORMAL_EX_POINTER_OFFSETS), 0x00A7E528, NORMAL_EX_TIMER_POINTER_OFFSETS, ARRAY_COUNT(NORMAL_EX_TIMER_POINTER_OFFSETS), 1, 3, 2600, 0, L"section_bests_master.txt", L"max_level_master.txt" }
+    { .modeLabel = L"NORMAL", .cursorValue = 9, .menuCursorPosition = 1, .theoreticalMaxLevel = 999, .initialTimerFrames = 0, .saveFileName = L"section_bests_normal.txt", .maxLevelFileName = L"max_level_normal.txt" },
+    { .modeLabel = L"NORMAL(1.1)", .cursorValue = 15, .menuCursorPosition = 1, .theoreticalMaxLevel = 999, .initialTimerFrames = 0, .saveFileName = L"section_bests_normal_1_1.txt", .maxLevelFileName = L"max_level_normal_1_1.txt" },
+    { .modeLabel = L"NORMAL(2.1)", .cursorValue = 16, .menuCursorPosition = 1, .theoreticalMaxLevel = 999, .initialTimerFrames = 0, .saveFileName = L"section_bests_normal_2_1.txt", .maxLevelFileName = L"max_level_normal_2_1.txt" },
+    { .modeLabel = L"NORMAL(3.1)", .cursorValue = 17, .menuCursorPosition = 1, .theoreticalMaxLevel = 2000, .initialTimerFrames = 0, .saveFileName = L"section_bests_normal_3_1.txt", .maxLevelFileName = L"max_level_normal_3_1.txt" },
+    { .modeLabel = L"NORMAL(4.1)", .cursorValue = 18, .menuCursorPosition = 1, .theoreticalMaxLevel = 999, .initialTimerFrames = 0, .saveFileName = L"section_bests_normal_4_1.txt", .maxLevelFileName = L"max_level_normal_4_1.txt" },
+    { .modeLabel = L"ASUKA", .cursorValue = 5, .menuCursorPosition = 2, .theoreticalMaxLevel = 1300, .initialTimerFrames = 7 * 60 * 60, .saveFileName = L"section_bests_asuka.txt", .maxLevelFileName = L"max_level_asuka.txt" },
+    { .modeLabel = L"ASUKAEASY", .cursorValue = 10, .menuCursorPosition = 2, .theoreticalMaxLevel = 999, .initialTimerFrames = 30 * 60 * 60, .saveFileName = L"section_bests_asukaeasy.txt", .maxLevelFileName = L"max_level_asukaeasy.txt" },
+    { .modeLabel = L"MASTER", .cursorValue = 1, .menuCursorPosition = 3, .theoreticalMaxLevel = 2600, .initialTimerFrames = 0, .saveFileName = L"section_bests_master.txt", .maxLevelFileName = L"max_level_master.txt" }
 };
 
 const TableColumnDefinition TABLE_COLUMNS[COLUMN_COUNT] = {
@@ -55,23 +31,67 @@ static void initialize_max_level(void) {
     g_app.maxLevel = 1107;
 }
 
+static wchar_t *trim_quotes(wchar_t *text) {
+    size_t len;
+
+    if (text == NULL) {
+        return NULL;
+    }
+
+    while (*text == L'"') {
+        ++text;
+    }
+
+    len = wcslen(text);
+    while (len > 0 && (text[len - 1] == L'"' || text[len - 1] == L'\r' || text[len - 1] == L'\n')) {
+        text[len - 1] = L'\0';
+        --len;
+    }
+
+    return text;
+}
+
 static size_t split_csv_offsets(wchar_t *text, uintptr_t *offsets, size_t maxCount) {
     wchar_t *token;
-    size_t count = 0;
+    size_t count;
 
-    token = wcstok(text, L",");
+    count = 0;
+    token = wcstok(trim_quotes(text), L",");
     while (token != NULL && count < maxCount) {
-        offsets[count++] = (uintptr_t)wcstoul(token, NULL, 0);
+        offsets[count] = (uintptr_t)wcstoul(trim_quotes(token), NULL, 0);
+        count += 1;
         token = wcstok(NULL, L",");
     }
 
     return count;
 }
 
+static void clear_pointer_fields(PointerConfig *config) {
+    config->baseOffset = 0;
+    config->pointerOffsetCount = 0;
+    config->timerBaseOffset = 0;
+    config->timerPointerOffsetCount = 0;
+    config->cursorBaseOffset = 0;
+    config->cursorPointerOffsetCount = 0;
+    config->menuCursorBaseOffset = 0;
+    config->menuCursorPointerOffsetCount = 0;
+    ZeroMemory(config->pointerOffsets, sizeof(config->pointerOffsets));
+    ZeroMemory(config->timerPointerOffsets, sizeof(config->timerPointerOffsets));
+    ZeroMemory(config->cursorPointerOffsets, sizeof(config->cursorPointerOffsets));
+    ZeroMemory(config->menuCursorPointerOffsets, sizeof(config->menuCursorPointerOffsets));
+}
+
+static void write_offsets(FILE *file, const uintptr_t *offsets, size_t count) {
+    size_t i;
+
+    for (i = 0; i < count; ++i) {
+        fwprintf(file, i == 0 ? L"0x%IX" : L",0x%IX", offsets[i]);
+    }
+}
+
 static void write_pointer_configs_to_file(void) {
     FILE *file;
     int i;
-    size_t j;
 
     build_save_paths();
     if (g_app.configFilePath[0] == L'\0') {
@@ -83,16 +103,16 @@ static void write_pointer_configs_to_file(void) {
         return;
     }
 
-    fwprintf(file, L"mode\tlevel_base\tlevel_offsets\ttimer_base\ttimer_offsets\tcursor_value\tmenu_cursor_position\ttheoretical_max_level\tinitial_timer_frames\n");
+    fwprintf(file, L"mode\tlevel_base\tlevel_offsets\ttimer_base\ttimer_offsets\tcursor_base\tcursor_offsets\tmenu_cursor_base\tmenu_cursor_offsets\tcursor_value\tmenu_cursor_position\ttheoretical_max_level\tinitial_timer_frames\n");
     for (i = 0; i < pointer_config_count(); ++i) {
         fwprintf(file, L"%ls\t0x%08IX\t", POINTER_CONFIGS[i].modeLabel, POINTER_CONFIGS[i].baseOffset);
-        for (j = 0; j < POINTER_CONFIGS[i].pointerOffsetCount; ++j) {
-            fwprintf(file, j == 0 ? L"0x%IX" : L",0x%IX", POINTER_CONFIGS[i].pointerOffsets[j]);
-        }
+        write_offsets(file, POINTER_CONFIGS[i].pointerOffsets, POINTER_CONFIGS[i].pointerOffsetCount);
         fwprintf(file, L"\t0x%08IX\t", POINTER_CONFIGS[i].timerBaseOffset);
-        for (j = 0; j < POINTER_CONFIGS[i].timerPointerOffsetCount; ++j) {
-            fwprintf(file, j == 0 ? L"0x%IX" : L",0x%IX", POINTER_CONFIGS[i].timerPointerOffsets[j]);
-        }
+        write_offsets(file, POINTER_CONFIGS[i].timerPointerOffsets, POINTER_CONFIGS[i].timerPointerOffsetCount);
+        fwprintf(file, L"\t0x%08IX\t", POINTER_CONFIGS[i].cursorBaseOffset);
+        write_offsets(file, POINTER_CONFIGS[i].cursorPointerOffsets, POINTER_CONFIGS[i].cursorPointerOffsetCount);
+        fwprintf(file, L"\t0x%08IX\t", POINTER_CONFIGS[i].menuCursorBaseOffset);
+        write_offsets(file, POINTER_CONFIGS[i].menuCursorPointerOffsets, POINTER_CONFIGS[i].menuCursorPointerOffsetCount);
         fwprintf(file, L"\t%d\t%d\t%d\t%d\n", POINTER_CONFIGS[i].cursorValue, POINTER_CONFIGS[i].menuCursorPosition, POINTER_CONFIGS[i].theoreticalMaxLevel, POINTER_CONFIGS[i].initialTimerFrames);
     }
 
@@ -167,11 +187,17 @@ void reset_best_times_for_config_index(int configIndex) {
 
 void load_pointer_configs(void) {
     FILE *file;
-    wchar_t line[1024];
+    wchar_t line[2048];
+    bool loadedAny;
+    int i;
 
     build_save_paths();
     if (g_app.configFilePath[0] == L'\0') {
         return;
+    }
+
+    for (i = 0; i < pointer_config_count(); ++i) {
+        clear_pointer_fields(&POINTER_CONFIGS[i]);
     }
 
     file = _wfopen(g_app.configFilePath, L"r");
@@ -186,44 +212,58 @@ void load_pointer_configs(void) {
         return;
     }
 
+    loadedAny = false;
     while (fgetws(line, ARRAY_COUNT(line), file) != NULL) {
-        wchar_t *fields[9];
+        wchar_t *fields[13];
         wchar_t *token;
         wchar_t levelOffsetsText[512];
         wchar_t timerOffsetsText[512];
-        int fieldCount = 0;
-        int i;
+        wchar_t cursorOffsetsText[512];
+        wchar_t menuCursorOffsetsText[512];
+        int fieldCount;
 
+        fieldCount = 0;
         token = wcstok(line, L"\t\r\n");
         while (token != NULL && fieldCount < (int)ARRAY_COUNT(fields)) {
-            fields[fieldCount++] = token;
+            fields[fieldCount] = token;
+            fieldCount += 1;
             token = wcstok(NULL, L"\t\r\n");
         }
 
-        if (fieldCount < (int)ARRAY_COUNT(fields)) {
+        if (fieldCount < 13) {
             continue;
         }
 
         for (i = 0; i < pointer_config_count(); ++i) {
-            if (wcscmp(POINTER_CONFIGS[i].modeLabel, fields[0]) != 0) {
+            if (wcscmp(POINTER_CONFIGS[i].modeLabel, trim_quotes(fields[0])) != 0) {
                 continue;
             }
 
-            POINTER_CONFIGS[i].baseOffset = (uintptr_t)wcstoul(fields[1], NULL, 0);
-            lstrcpynW(levelOffsetsText, fields[2], ARRAY_COUNT(levelOffsetsText));
-            POINTER_CONFIGS[i].pointerOffsetCount = split_csv_offsets(levelOffsetsText, (uintptr_t *)POINTER_CONFIGS[i].pointerOffsets, POINTER_CONFIGS[i].pointerOffsetCount);
-            POINTER_CONFIGS[i].timerBaseOffset = (uintptr_t)wcstoul(fields[3], NULL, 0);
-            lstrcpynW(timerOffsetsText, fields[4], ARRAY_COUNT(timerOffsetsText));
-            POINTER_CONFIGS[i].timerPointerOffsetCount = split_csv_offsets(timerOffsetsText, (uintptr_t *)POINTER_CONFIGS[i].timerPointerOffsets, POINTER_CONFIGS[i].timerPointerOffsetCount);
-            POINTER_CONFIGS[i].cursorValue = _wtoi(fields[5]);
-            POINTER_CONFIGS[i].menuCursorPosition = _wtoi(fields[6]);
-            POINTER_CONFIGS[i].theoreticalMaxLevel = _wtoi(fields[7]);
-            POINTER_CONFIGS[i].initialTimerFrames = _wtoi(fields[8]);
+            POINTER_CONFIGS[i].baseOffset = (uintptr_t)wcstoul(trim_quotes(fields[1]), NULL, 0);
+            lstrcpynW(levelOffsetsText, trim_quotes(fields[2]), ARRAY_COUNT(levelOffsetsText));
+            POINTER_CONFIGS[i].pointerOffsetCount = split_csv_offsets(levelOffsetsText, POINTER_CONFIGS[i].pointerOffsets, MAX_POINTER_OFFSET_COUNT);
+            POINTER_CONFIGS[i].timerBaseOffset = (uintptr_t)wcstoul(trim_quotes(fields[3]), NULL, 0);
+            lstrcpynW(timerOffsetsText, trim_quotes(fields[4]), ARRAY_COUNT(timerOffsetsText));
+            POINTER_CONFIGS[i].timerPointerOffsetCount = split_csv_offsets(timerOffsetsText, POINTER_CONFIGS[i].timerPointerOffsets, MAX_POINTER_OFFSET_COUNT);
+            POINTER_CONFIGS[i].cursorBaseOffset = (uintptr_t)wcstoul(trim_quotes(fields[5]), NULL, 0);
+            lstrcpynW(cursorOffsetsText, trim_quotes(fields[6]), ARRAY_COUNT(cursorOffsetsText));
+            POINTER_CONFIGS[i].cursorPointerOffsetCount = split_csv_offsets(cursorOffsetsText, POINTER_CONFIGS[i].cursorPointerOffsets, MAX_POINTER_OFFSET_COUNT);
+            POINTER_CONFIGS[i].menuCursorBaseOffset = (uintptr_t)wcstoul(trim_quotes(fields[7]), NULL, 0);
+            lstrcpynW(menuCursorOffsetsText, trim_quotes(fields[8]), ARRAY_COUNT(menuCursorOffsetsText));
+            POINTER_CONFIGS[i].menuCursorPointerOffsetCount = split_csv_offsets(menuCursorOffsetsText, POINTER_CONFIGS[i].menuCursorPointerOffsets, MAX_POINTER_OFFSET_COUNT);
+            POINTER_CONFIGS[i].cursorValue = _wtoi(trim_quotes(fields[9]));
+            POINTER_CONFIGS[i].menuCursorPosition = _wtoi(trim_quotes(fields[10]));
+            POINTER_CONFIGS[i].theoreticalMaxLevel = _wtoi(trim_quotes(fields[11]));
+            POINTER_CONFIGS[i].initialTimerFrames = _wtoi(trim_quotes(fields[12]));
+            loadedAny = true;
             break;
         }
     }
 
     fclose(file);
+    if (!loadedAny) {
+        write_pointer_configs_to_file();
+    }
 }
 
 void save_best_times(void) {

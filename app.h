@@ -21,6 +21,7 @@
 #define ARRAY_COUNT(a) (sizeof(a) / sizeof((a)[0]))
 #define MAX_SECTION_COUNT 30
 #define MAX_HISTORY_COUNT 20
+#define MAX_POINTER_OFFSET_COUNT 16
 #define PACE_SAMPLE_COUNT 4096
 #define COLUMN_COUNT 6
 #define WINDOW_CLASS_NAME L"Tgm4SectionTimerWindow"
@@ -39,17 +40,24 @@
 #define ID_CHECK_BACKCOL 1105
 #define ID_CHECK_TET 1106
 #define ID_CHECK_PROGRESS 1107
+#define ID_CHECK_DEBUG 1108
 #define ID_COMBO_RESET_MODE 1201
 #define ID_BUTTON_RESET_BEST 1202
 
 typedef struct PointerConfig {
     const wchar_t *modeLabel;
     uintptr_t baseOffset;
-    const uintptr_t *pointerOffsets;
+    uintptr_t pointerOffsets[MAX_POINTER_OFFSET_COUNT];
     size_t pointerOffsetCount;
     uintptr_t timerBaseOffset;
-    const uintptr_t *timerPointerOffsets;
+    uintptr_t timerPointerOffsets[MAX_POINTER_OFFSET_COUNT];
     size_t timerPointerOffsetCount;
+    uintptr_t cursorBaseOffset;
+    uintptr_t cursorPointerOffsets[MAX_POINTER_OFFSET_COUNT];
+    size_t cursorPointerOffsetCount;
+    uintptr_t menuCursorBaseOffset;
+    uintptr_t menuCursorPointerOffsets[MAX_POINTER_OFFSET_COUNT];
+    size_t menuCursorPointerOffsetCount;
     int cursorValue;
     int menuCursorPosition;
     int theoreticalMaxLevel;
@@ -107,6 +115,7 @@ typedef struct AppState {
     bool attached;
     bool timerRunning;
     bool levelReadable;
+    bool timerReadable;
     bool modeDetected;
     bool clearResultsOnLevelAdvance;
     bool resultsArchivedPendingClear;
@@ -116,6 +125,7 @@ typedef struct AppState {
     int previousLevel;
     int lastRecordedSection;
     int cursorValue;
+    int cursorYValue;
     int runStartGameTimerFrames;
     double maxLevelsPerMinute;
 
@@ -130,6 +140,9 @@ typedef struct AppState {
     int sectionCount;
     int currentConfigIndex;
     int currentGameTimerFrames;
+    uintptr_t cursorAddress;
+    uintptr_t menuCursorAddress;
+    uintptr_t timerAddress;
     PaceSample paceSamples[PACE_SAMPLE_COUNT];
     int paceSampleStart;
     int paceSampleCount;
@@ -141,6 +154,7 @@ typedef struct AppState {
     bool showColumnBack;
     bool showColumnTet;
     bool showProgressBar;
+    bool showDebugInfo;
     HWND historyPrevButton;
     HWND historyNextButton;
     HWND settingsButton;
@@ -152,6 +166,7 @@ typedef struct AppState {
     HWND backColCheck;
     HWND tetCheck;
     HWND progressCheck;
+    HWND debugCheck;
     HWND resetModeCombo;
     HWND resetBestButton;
     RunSnapshot history[MAX_HISTORY_COUNT];
@@ -162,6 +177,8 @@ typedef struct AppState {
     wchar_t maxLevelFilePath[MAX_PATH];
     wchar_t configFilePath[MAX_PATH];
     wchar_t statusText[128];
+    wchar_t levelReadStatus[128];
+    wchar_t timerReadStatus[128];
 } AppState;
 
 extern PointerConfig POINTER_CONFIGS[];

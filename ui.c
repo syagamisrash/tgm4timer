@@ -146,6 +146,73 @@ static void paint_settings_screen(HDC hdc) {
     draw_text_line(hdc, &y, L"Select a mode and reset best section times to 999.000 s", RGB(200, 220, 255));
 }
 
+static void draw_debug_text(HDC hdc, int x, int y) {
+    wchar_t line[256];
+    wchar_t offsets[512];
+    const PointerConfig *config = current_pointer_config();
+    size_t i;
+
+    if (!g_app.showDebugInfo) {
+        return;
+    }
+    (void)x;
+
+    draw_text_line(hdc, &y, L"Debug Values", RGB(255, 210, 140));
+    swprintf(line, ARRAY_COUNT(line), L"GameModeValue=%d  Mode=%ls  detected=%d  attached=%d", g_app.cursorValue, config != NULL ? config->modeLabel : L"-", g_app.modeDetected, g_app.attached);
+    draw_text_line(hdc, &y, line, RGB(200, 220, 255));
+    swprintf(line, ARRAY_COUNT(line), L"CursorYValue=%d  MenuCursorExpected=%d  timerRunning=%d  levelReadable=%d  timerReadable=%d", g_app.cursorYValue, config != NULL ? config->menuCursorPosition : -1, g_app.timerRunning, g_app.levelReadable, g_app.timerReadable);
+    draw_text_line(hdc, &y, line, RGB(220, 220, 220));
+    swprintf(line, ARRAY_COUNT(line), L"LevelValue=%d  TimerValue=%d", g_app.currentLevel, g_app.currentGameTimerFrames);
+    draw_text_line(hdc, &y, line, RGB(220, 220, 220));
+    swprintf(line, ARRAY_COUNT(line), L"CurrentLevel=%d  PreviousLevel=%d  MaxLevel=%d  SectionCount=%d  LastSection=%d", g_app.currentLevel, g_app.previousLevel, g_app.maxLevel, g_app.sectionCount, g_app.lastRecordedSection);
+    draw_text_line(hdc, &y, line, RGB(220, 220, 220));
+    swprintf(line, ARRAY_COUNT(line), L"LevelAddress=0x%p  CursorAddress=0x%p  MenuCursorAddress=0x%p  TimerAddress=0x%p", (void *)g_app.levelAddress, (void *)g_app.cursorAddress, (void *)g_app.menuCursorAddress, (void *)g_app.timerAddress);
+    draw_text_line(hdc, &y, line, RGB(220, 220, 220));
+    swprintf(line, ARRAY_COUNT(line), L"LevelStatus=%ls", g_app.levelReadStatus[0] != L'\0' ? g_app.levelReadStatus : L"-");
+    draw_text_line(hdc, &y, line, RGB(220, 220, 220));
+    swprintf(line, ARRAY_COUNT(line), L"TimerStatus=%ls", g_app.timerReadStatus[0] != L'\0' ? g_app.timerReadStatus : L"-");
+    draw_text_line(hdc, &y, line, RGB(220, 220, 220));
+    swprintf(line, ARRAY_COUNT(line), L"RunStartFrames=%d  CurrentTimerFrames=%d  RunStartMs=%llu  LastPollMs=%llu", g_app.runStartGameTimerFrames, g_app.currentGameTimerFrames, g_app.runStartMs, g_app.lastPollMs);
+    draw_text_line(hdc, &y, line, RGB(220, 220, 220));
+    if (config != NULL) {
+        swprintf(line, ARRAY_COUNT(line), L"LevelBase=0x%08IX  TimerBase=0x%08IX  CursorBase=0x%08IX  MenuCursorBase=0x%08IX",
+            config->baseOffset, config->timerBaseOffset, config->cursorBaseOffset, config->menuCursorBaseOffset);
+        draw_text_line(hdc, &y, line, RGB(220, 220, 220));
+
+        offsets[0] = L'\0';
+        for (i = 0; i < config->pointerOffsetCount; ++i) {
+            wchar_t piece[32];
+            swprintf(piece, ARRAY_COUNT(piece), i == 0 ? L"LevelOffsets: 0x%IX" : L" -> 0x%IX", config->pointerOffsets[i]);
+            wcsncat(offsets, piece, ARRAY_COUNT(offsets) - wcslen(offsets) - 1);
+        }
+        draw_text_line(hdc, &y, offsets, RGB(190, 230, 255));
+
+        offsets[0] = L'\0';
+        for (i = 0; i < config->timerPointerOffsetCount; ++i) {
+            wchar_t piece[32];
+            swprintf(piece, ARRAY_COUNT(piece), i == 0 ? L"TimerOffsets: 0x%IX" : L" -> 0x%IX", config->timerPointerOffsets[i]);
+            wcsncat(offsets, piece, ARRAY_COUNT(offsets) - wcslen(offsets) - 1);
+        }
+        draw_text_line(hdc, &y, offsets, RGB(190, 230, 255));
+
+        offsets[0] = L'\0';
+        for (i = 0; i < config->cursorPointerOffsetCount; ++i) {
+            wchar_t piece[32];
+            swprintf(piece, ARRAY_COUNT(piece), i == 0 ? L"CursorOffsets: 0x%IX" : L" -> 0x%IX", config->cursorPointerOffsets[i]);
+            wcsncat(offsets, piece, ARRAY_COUNT(offsets) - wcslen(offsets) - 1);
+        }
+        draw_text_line(hdc, &y, offsets, RGB(190, 230, 255));
+
+        offsets[0] = L'\0';
+        for (i = 0; i < config->menuCursorPointerOffsetCount; ++i) {
+            wchar_t piece[32];
+            swprintf(piece, ARRAY_COUNT(piece), i == 0 ? L"MenuOffsets: 0x%IX" : L" -> 0x%IX", config->menuCursorPointerOffsets[i]);
+            wcsncat(offsets, piece, ARRAY_COUNT(offsets) - wcslen(offsets) - 1);
+        }
+        draw_text_line(hdc, &y, offsets, RGB(190, 230, 255));
+    }
+}
+
 static double current_section_progress(int level, int theoreticalMaxLevel) {
     int sectionIndex;
     int sectionStart;
@@ -218,6 +285,7 @@ void create_settings_screen_controls(HWND hwnd, HINSTANCE instance) {
     g_app.backColCheck = CreateWindowW(L"BUTTON", L"Show Back", WS_CHILD | BS_AUTOCHECKBOX, 24, 230, 220, 24, hwnd, (HMENU)ID_CHECK_BACKCOL, instance, NULL);
     g_app.tetCheck = CreateWindowW(L"BUTTON", L"Show Tet", WS_CHILD | BS_AUTOCHECKBOX, 24, 260, 220, 24, hwnd, (HMENU)ID_CHECK_TET, instance, NULL);
     g_app.progressCheck = CreateWindowW(L"BUTTON", L"Show Progress Bar", WS_CHILD | BS_AUTOCHECKBOX, 24, 290, 220, 24, hwnd, (HMENU)ID_CHECK_PROGRESS, instance, NULL);
+    g_app.debugCheck = CreateWindowW(L"BUTTON", L"Show Debug Values", WS_CHILD | BS_AUTOCHECKBOX, 24, 320, 220, 24, hwnd, (HMENU)ID_CHECK_DEBUG, instance, NULL);
     g_app.resetModeCombo = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | CBS_DROPDOWNLIST | WS_VSCROLL, 24, 370, 240, 200, hwnd, (HMENU)ID_COMBO_RESET_MODE, instance, NULL);
     g_app.resetBestButton = CreateWindowW(L"BUTTON", L"Reset Best To 999s", WS_CHILD | BS_PUSHBUTTON, 280, 370, 180, 28, hwnd, (HMENU)ID_BUTTON_RESET_BEST, instance, NULL);
 }
@@ -252,6 +320,7 @@ void update_screen_controls(void) {
     if (g_app.backColCheck != NULL) ShowWindow(g_app.backColCheck, showSettings ? SW_SHOW : SW_HIDE);
     if (g_app.tetCheck != NULL) ShowWindow(g_app.tetCheck, showSettings ? SW_SHOW : SW_HIDE);
     if (g_app.progressCheck != NULL) ShowWindow(g_app.progressCheck, showSettings ? SW_SHOW : SW_HIDE);
+    if (g_app.debugCheck != NULL) ShowWindow(g_app.debugCheck, showSettings ? SW_SHOW : SW_HIDE);
     if (g_app.resetModeCombo != NULL) ShowWindow(g_app.resetModeCombo, showSettings ? SW_SHOW : SW_HIDE);
     if (g_app.resetBestButton != NULL) ShowWindow(g_app.resetBestButton, showSettings ? SW_SHOW : SW_HIDE);
 
@@ -266,6 +335,7 @@ void update_screen_controls(void) {
         set_checkbox_state(checkboxHwnds[TABLE_COLUMNS[i].id], is_column_visible(TABLE_COLUMNS[i].id));
     }
     set_checkbox_state(g_app.progressCheck, g_app.showProgressBar);
+    set_checkbox_state(g_app.debugCheck, g_app.showDebugInfo);
 
     update_button_labels();
 }
@@ -472,6 +542,18 @@ void paint_window(HWND hwnd) {
         y += 22;
     }
 
+    if (!g_app.modeDetected && snapshot == NULL) {
+        draw_debug_text(memoryDc, 12, y + 8);
+        BitBlt(hdc, 0, 0, clientRect.right - clientRect.left, clientRect.bottom - clientRect.top, memoryDc, 0, 0, SRCCOPY);
+        SelectObject(memoryDc, oldFont);
+        SelectObject(memoryDc, oldBitmap);
+        DeleteObject(font);
+        DeleteObject(backBufferBitmap);
+        DeleteDC(memoryDc);
+        EndPaint(hwnd, &ps);
+        return;
+    }
+
     if (g_app.showProgressBar) {
         progressRatio = current_section_progress(displayCurrentLevel, displayTheoreticalMaxLevel);
         progressSectionIndex = current_section_index_for_display(displayCurrentLevel, displayTheoreticalMaxLevel);
@@ -535,17 +617,6 @@ void paint_window(HWND hwnd) {
         SelectObject(memoryDc, oldPen);
         DeleteObject(progressPen);
         y = progressBarTop + 32;
-    }
-
-    if (!g_app.modeDetected && snapshot == NULL) {
-        BitBlt(hdc, 0, 0, clientRect.right - clientRect.left, clientRect.bottom - clientRect.top, memoryDc, 0, 0, SRCCOPY);
-        SelectObject(memoryDc, oldFont);
-        SelectObject(memoryDc, oldBitmap);
-        DeleteObject(font);
-        DeleteObject(backBufferBitmap);
-        DeleteDC(memoryDc);
-        EndPaint(hwnd, &ps);
-        return;
     }
 
     y += 8;
@@ -653,7 +724,10 @@ void paint_window(HWND hwnd) {
     infoTop = tableTop + rowHeight * (visibleSectionCount + 1) + 20;
     if (gmRequirementText != NULL) {
         draw_multiline_text(memoryDc, tableLeft, infoTop, gmRequirementText, RGB(200, 220, 255));
+        infoTop += 98;
     }
+
+    draw_debug_text(memoryDc, tableLeft, infoTop);
 
     BitBlt(hdc, 0, 0, clientRect.right - clientRect.left, clientRect.bottom - clientRect.top, memoryDc, 0, 0, SRCCOPY);
     SelectObject(memoryDc, oldFont);

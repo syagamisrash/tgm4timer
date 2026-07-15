@@ -1,13 +1,5 @@
 #include "app.h"
 
-static uintptr_t CURSOR_POINTER_OFFSETS[] = {
-    0x08, 0x254, 0x30, 0x2C, 0x0C, 0x1C
-};
-
-static uintptr_t MENU_CURSOR_POINTER_OFFSETS[] = {
-    0x08, 0x254, 0x30, 0x30, 0x44, 0x10, 0x15
-};
-
 AppState g_app = { 0 };
 
 static void close_process(void);
@@ -33,6 +25,16 @@ static uintptr_t find_module_base_address(DWORD processId, const wchar_t *module
 static int find_config_index_for_cursor_value(int cursorValue);
 static double frames_to_seconds(int frames);
 static LRESULT CALLBACK window_proc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
+
+static const PointerConfig *cursor_pointer_config(void) {
+    if (g_app.currentConfigIndex >= 0) {
+        return current_pointer_config();
+    }
+    if (pointer_config_count() > 0) {
+        return &POINTER_CONFIGS[0];
+    }
+    return NULL;
+}
 
 void copy_status_text(const wchar_t *text) {
     lstrcpynW(g_app.statusText, text, ARRAY_COUNT(g_app.statusText));
@@ -239,6 +241,7 @@ static void reset_tracking_state(void) {
     g_app.previousLevel = -1;
     g_app.lastRecordedSection = -1;
     g_app.levelReadable = false;
+    g_app.timerReadable = false;
     g_app.modeDetected = false;
     g_app.runStartMs = 0;
     g_app.runStartGameTimerFrames = -1;
@@ -343,14 +346,27 @@ static bool read_game_timer_frames_internal(int *framesOut) {
     const PointerConfig *config = current_pointer_config();
 
     if (config == NULL || g_app.processHandle == NULL) {
+        g_app.timerReadable = false;
+        lstrcpynW(g_app.timerReadStatus, L"Timer skipped: no mode or process", ARRAY_COUNT(g_app.timerReadStatus));
         return false;
     }
 
+    g_app.timerAddress = 0;
+    g_app.timerReadable = false;
     if (!resolve_pointer_chain(config->timerBaseOffset, config->timerPointerOffsets, config->timerPointerOffsetCount, &resolvedAddress)) {
+        lstrcpynW(g_app.timerReadStatus, L"Timer pointer resolve failed", ARRAY_COUNT(g_app.timerReadStatus));
         return false;
     }
 
-    return read_int_from_address(resolvedAddress, framesOut);
+    g_app.timerAddress = resolvedAddress;
+    if (!read_int_from_address(resolvedAddress, framesOut)) {
+        swprintf(g_app.timerReadStatus, ARRAY_COUNT(g_app.timerReadStatus), L"Timer read failed at 0x%p", (void *)resolvedAddress);
+        return false;
+    }
+
+    g_app.timerReadable = true;
+    lstrcpynW(g_app.timerReadStatus, L"Timer read OK", ARRAY_COUNT(g_app.timerReadStatus));
+    return true;
 }
 
 static bool read_byte_from_address(uintptr_t address, uint8_t *valueOut) {
@@ -372,6 +388,21 @@ static int find_config_index_for_cursor_value(int cursorValue) {
     return -1;
 }
 
+/* During a game the menu pointers can become unavailable. Keep the last
+ * confirmed mode so level and timer tracking can continue. */
+static bool keep_last_confirmed_mode(const wchar_t *statusText) {
+    if (g_app.currentConfigIndex < 0 || g_app.currentConfigIndex >= pointer_config_count()) {
+        g_app.modeDetected = false;
+        return false;
+    }
+
+    g_app.modeDetected = true;
+    if (statusText != NULL) {
+        copy_status_text(statusText);
+    }
+    return true;
+}
+
 static bool detect_mode_from_cursor(void) {
     uintptr_t cursorAddress;
     uintptr_t menuCursorAddress;
@@ -380,43 +411,38 @@ static bool detect_mode_from_cursor(void) {
     int newConfigIndex;
     const PointerConfig *config;
 
-    if (!resolve_pointer_chain(0x00A7E528, CURSOR_POINTER_OFFSETS, ARRAY_COUNT(CURSOR_POINTER_OFFSETS), &cursorAddress)) {
-        g_app.modeDetected = false;
+    config = cursor_pointer_config();
+    if (config == NULL) {
         return false;
+    }
+
+    if (!resolve_pointer_chain(config->cursorBaseOffset, config->cursorPointerOffsets, config->cursorPointerOffsetCount, &cursorAddress)) {
+        return keep_last_confirmed_mode(L"Game mode pointer unavailable; using last confirmed mode");
     }
     if (!read_int_from_address(cursorAddress, &cursorValue)) {
-        copy_status_text(L"Cursor read failed");
-        g_app.modeDetected = false;
-        return false;
+        return keep_last_confirmed_mode(L"Game mode value unavailable; using last confirmed mode");
     }
 
-    if (!resolve_pointer_chain(0x00A7E528, MENU_CURSOR_POINTER_OFFSETS, ARRAY_COUNT(MENU_CURSOR_POINTER_OFFSETS), &menuCursorAddress)) {
-        if (g_app.currentConfigIndex >= 0) {
-            g_app.modeDetected = true;
-            return true;
-        }
-        g_app.modeDetected = false;
-        return false;
+    g_app.cursorAddress = cursorAddress;
+    if (!resolve_pointer_chain(config->menuCursorBaseOffset, config->menuCursorPointerOffsets, config->menuCursorPointerOffsetCount, &menuCursorAddress)) {
+        return keep_last_confirmed_mode(L"Menu cursor pointer unavailable; using last confirmed mode");
     }
     if (!read_byte_from_address(menuCursorAddress, &menuCursorPosition)) {
-        copy_status_text(L"Menu cursor read failed");
-        if (g_app.currentConfigIndex >= 0) {
-            g_app.modeDetected = true;
-            return true;
-        }
-        g_app.modeDetected = false;
-        return false;
+        return keep_last_confirmed_mode(L"Menu cursor value unavailable; using last confirmed mode");
     }
 
+    g_app.menuCursorAddress = menuCursorAddress;
     g_app.cursorValue = cursorValue;
+    g_app.cursorYValue = (int)menuCursorPosition;
     newConfigIndex = find_config_index_for_cursor_value(cursorValue);
     if (newConfigIndex < 0) {
-        if (g_app.currentConfigIndex >= 0) {
-            g_app.modeDetected = true;
-            return true;
-        }
-        g_app.modeDetected = false;
-        return false;
+        return keep_last_confirmed_mode(L"Unknown game mode value; using last confirmed mode");
+    }
+
+    /* A mode change is valid only when both independent menu values agree. */
+    config = &POINTER_CONFIGS[newConfigIndex];
+    if (config->menuCursorPosition != (int)menuCursorPosition) {
+        return keep_last_confirmed_mode(L"Game mode and menu cursor do not match; using last confirmed mode");
     }
 
     if (g_app.currentConfigIndex != newConfigIndex) {
@@ -427,46 +453,34 @@ static bool detect_mode_from_cursor(void) {
         load_max_level();
     }
 
-    config = current_pointer_config();
-    if (config == NULL) {
-        g_app.modeDetected = false;
-        return false;
-    }
-
-    if (config->menuCursorPosition != (int)menuCursorPosition) {
-        if (g_app.currentConfigIndex >= 0) {
-            g_app.modeDetected = true;
-            return true;
-        }
-        g_app.modeDetected = false;
-        return false;
-    }
-
     g_app.modeDetected = true;
     return true;
 }
-
 static bool read_level_value(int *levelOut) {
     uintptr_t resolvedAddress;
     SIZE_T bytesRead;
 
     if (g_app.processHandle == NULL) {
+        g_app.levelReadable = false;
+        lstrcpynW(g_app.levelReadStatus, L"Level skipped: no process", ARRAY_COUNT(g_app.levelReadStatus));
         return false;
     }
+    g_app.levelAddress = 0;
+    g_app.levelReadable = false;
     if (!resolve_level_address(&resolvedAddress)) {
-        g_app.levelReadable = false;
+        lstrcpynW(g_app.levelReadStatus, L"Level pointer resolve failed", ARRAY_COUNT(g_app.levelReadStatus));
         return false;
     }
 
     g_app.levelAddress = resolvedAddress;
     if (!ReadProcessMemory(g_app.processHandle, (LPCVOID)g_app.levelAddress, levelOut, sizeof(*levelOut), &bytesRead) || bytesRead != sizeof(*levelOut)) {
-        g_app.levelAddress = 0;
-        g_app.levelReadable = false;
+        swprintf(g_app.levelReadStatus, ARRAY_COUNT(g_app.levelReadStatus), L"Level read failed at 0x%p", (void *)resolvedAddress);
         swprintf(g_app.statusText, ARRAY_COUNT(g_app.statusText), L"Level read failed, retrying address resolve");
         return false;
     }
 
     g_app.levelReadable = true;
+    lstrcpynW(g_app.levelReadStatus, L"Level read OK", ARRAY_COUNT(g_app.levelReadStatus));
     return true;
 }
 
@@ -697,6 +711,11 @@ static LRESULT CALLBACK window_proc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
         apply_column_toggle_from_control(LOWORD(wParam));
         if (LOWORD(wParam) == ID_CHECK_PROGRESS) {
             g_app.showProgressBar = SendMessageW(g_app.progressCheck, BM_GETCHECK, 0, 0) == BST_CHECKED;
+        }
+        if (LOWORD(wParam) == ID_CHECK_DEBUG) {
+            g_app.showDebugInfo = SendMessageW(g_app.debugCheck, BM_GETCHECK, 0, 0) == BST_CHECKED;
+            InvalidateRect(hwnd, NULL, TRUE);
+            return 0;
         }
         if (LOWORD(wParam) == ID_BUTTON_RESET_BEST) {
             int selection = (int)SendMessageW(g_app.resetModeCombo, CB_GETCURSEL, 0, 0);
