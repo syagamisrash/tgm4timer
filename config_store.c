@@ -1,5 +1,7 @@
 #include "app.h"
 
+PointerChains POINTER_CHAINS;
+
 PointerConfig POINTER_CONFIGS[] = {
     { .modeLabel = L"NORMAL", .cursorValue = 9, .menuCursorPosition = 1, .theoreticalMaxLevel = 999, .initialTimerFrames = 0, .saveFileName = L"section_bests_normal.txt", .maxLevelFileName = L"max_level_normal.txt" },
     { .modeLabel = L"NORMAL(1.1)", .cursorValue = 15, .menuCursorPosition = 1, .theoreticalMaxLevel = 999, .initialTimerFrames = 0, .saveFileName = L"section_bests_normal_1_1.txt", .maxLevelFileName = L"max_level_normal_1_1.txt" },
@@ -66,19 +68,8 @@ static size_t split_csv_offsets(wchar_t *text, uintptr_t *offsets, size_t maxCou
     return count;
 }
 
-static void clear_pointer_fields(PointerConfig *config) {
-    config->baseOffset = 0;
-    config->pointerOffsetCount = 0;
-    config->timerBaseOffset = 0;
-    config->timerPointerOffsetCount = 0;
-    config->cursorBaseOffset = 0;
-    config->cursorPointerOffsetCount = 0;
-    config->menuCursorBaseOffset = 0;
-    config->menuCursorPointerOffsetCount = 0;
-    ZeroMemory(config->pointerOffsets, sizeof(config->pointerOffsets));
-    ZeroMemory(config->timerPointerOffsets, sizeof(config->timerPointerOffsets));
-    ZeroMemory(config->cursorPointerOffsets, sizeof(config->cursorPointerOffsets));
-    ZeroMemory(config->menuCursorPointerOffsets, sizeof(config->menuCursorPointerOffsets));
+static void clear_pointer_chains(void) {
+    ZeroMemory(&POINTER_CHAINS, sizeof(POINTER_CHAINS));
 }
 
 static void write_offsets(FILE *file, const uintptr_t *offsets, size_t count) {
@@ -91,7 +82,6 @@ static void write_offsets(FILE *file, const uintptr_t *offsets, size_t count) {
 
 static void write_pointer_configs_to_file(void) {
     FILE *file;
-    int i;
 
     build_save_paths();
     if (g_app.configFilePath[0] == L'\0') {
@@ -103,22 +93,20 @@ static void write_pointer_configs_to_file(void) {
         return;
     }
 
-    fwprintf(file, L"mode\tlevel_base\tlevel_offsets\ttimer_base\ttimer_offsets\tcursor_base\tcursor_offsets\tmenu_cursor_base\tmenu_cursor_offsets\tcursor_value\tmenu_cursor_position\ttheoretical_max_level\tinitial_timer_frames\n");
-    for (i = 0; i < pointer_config_count(); ++i) {
-        fwprintf(file, L"%ls\t0x%08IX\t", POINTER_CONFIGS[i].modeLabel, POINTER_CONFIGS[i].baseOffset);
-        write_offsets(file, POINTER_CONFIGS[i].pointerOffsets, POINTER_CONFIGS[i].pointerOffsetCount);
-        fwprintf(file, L"\t0x%08IX\t", POINTER_CONFIGS[i].timerBaseOffset);
-        write_offsets(file, POINTER_CONFIGS[i].timerPointerOffsets, POINTER_CONFIGS[i].timerPointerOffsetCount);
-        fwprintf(file, L"\t0x%08IX\t", POINTER_CONFIGS[i].cursorBaseOffset);
-        write_offsets(file, POINTER_CONFIGS[i].cursorPointerOffsets, POINTER_CONFIGS[i].cursorPointerOffsetCount);
-        fwprintf(file, L"\t0x%08IX\t", POINTER_CONFIGS[i].menuCursorBaseOffset);
-        write_offsets(file, POINTER_CONFIGS[i].menuCursorPointerOffsets, POINTER_CONFIGS[i].menuCursorPointerOffsetCount);
-        fwprintf(file, L"\t%d\t%d\t%d\t%d\n", POINTER_CONFIGS[i].cursorValue, POINTER_CONFIGS[i].menuCursorPosition, POINTER_CONFIGS[i].theoreticalMaxLevel, POINTER_CONFIGS[i].initialTimerFrames);
-    }
-
+    fwprintf(file, L"# Shared pointer settings for every game mode.\n");
+    fwprintf(file, L"# Update only these values after a TGM4 update.\n");
+    fwprintf(file, L"base_address\t0x%08IX\n", POINTER_CHAINS.baseOffset);
+    fwprintf(file, L"game_mode_offsets\t");
+    write_offsets(file, POINTER_CHAINS.gameModeOffsets, POINTER_CHAINS.gameModeOffsetCount);
+    fwprintf(file, L"\nmenu_cursor_y_offsets\t");
+    write_offsets(file, POINTER_CHAINS.menuCursorYOffsets, POINTER_CHAINS.menuCursorYOffsetCount);
+    fwprintf(file, L"\nlevel_offsets\t");
+    write_offsets(file, POINTER_CHAINS.levelOffsets, POINTER_CHAINS.levelOffsetCount);
+    fwprintf(file, L"\ntimer_offsets\t");
+    write_offsets(file, POINTER_CHAINS.timerOffsets, POINTER_CHAINS.timerOffsetCount);
+    fwprintf(file, L"\n");
     fclose(file);
 }
-
 int pointer_config_count(void) {
     return (int)ARRAY_COUNT(POINTER_CONFIGS);
 }
@@ -188,84 +176,66 @@ void reset_best_times_for_config_index(int configIndex) {
 void load_pointer_configs(void) {
     FILE *file;
     wchar_t line[2048];
-    bool loadedAny;
-    int i;
+    bool hasBaseAddress;
+    bool hasGameModeOffsets;
+    bool hasMenuCursorYOffsets;
+    bool hasLevelOffsets;
+    bool hasTimerOffsets;
 
     build_save_paths();
     if (g_app.configFilePath[0] == L'\0') {
         return;
     }
 
-    for (i = 0; i < pointer_config_count(); ++i) {
-        clear_pointer_fields(&POINTER_CONFIGS[i]);
-    }
-
+    clear_pointer_chains();
     file = _wfopen(g_app.configFilePath, L"r");
     if (file == NULL) {
         write_pointer_configs_to_file();
         return;
     }
 
-    if (fgetws(line, ARRAY_COUNT(line), file) == NULL) {
-        fclose(file);
-        write_pointer_configs_to_file();
-        return;
-    }
-
-    loadedAny = false;
+    hasBaseAddress = false;
+    hasGameModeOffsets = false;
+    hasMenuCursorYOffsets = false;
+    hasLevelOffsets = false;
+    hasTimerOffsets = false;
     while (fgetws(line, ARRAY_COUNT(line), file) != NULL) {
-        wchar_t *fields[13];
-        wchar_t *token;
-        wchar_t levelOffsetsText[512];
-        wchar_t timerOffsetsText[512];
-        wchar_t cursorOffsetsText[512];
-        wchar_t menuCursorOffsetsText[512];
-        int fieldCount;
+        wchar_t *key;
+        wchar_t *value;
 
-        fieldCount = 0;
-        token = wcstok(line, L"\t\r\n");
-        while (token != NULL && fieldCount < (int)ARRAY_COUNT(fields)) {
-            fields[fieldCount] = token;
-            fieldCount += 1;
-            token = wcstok(NULL, L"\t\r\n");
-        }
-
-        if (fieldCount < 13) {
+        key = wcstok(line, L"\t\r\n");
+        value = wcstok(NULL, L"\t\r\n");
+        if (key == NULL || value == NULL || key[0] == L'#') {
             continue;
         }
 
-        for (i = 0; i < pointer_config_count(); ++i) {
-            if (wcscmp(POINTER_CONFIGS[i].modeLabel, trim_quotes(fields[0])) != 0) {
-                continue;
-            }
-
-            POINTER_CONFIGS[i].baseOffset = (uintptr_t)wcstoul(trim_quotes(fields[1]), NULL, 0);
-            lstrcpynW(levelOffsetsText, trim_quotes(fields[2]), ARRAY_COUNT(levelOffsetsText));
-            POINTER_CONFIGS[i].pointerOffsetCount = split_csv_offsets(levelOffsetsText, POINTER_CONFIGS[i].pointerOffsets, MAX_POINTER_OFFSET_COUNT);
-            POINTER_CONFIGS[i].timerBaseOffset = (uintptr_t)wcstoul(trim_quotes(fields[3]), NULL, 0);
-            lstrcpynW(timerOffsetsText, trim_quotes(fields[4]), ARRAY_COUNT(timerOffsetsText));
-            POINTER_CONFIGS[i].timerPointerOffsetCount = split_csv_offsets(timerOffsetsText, POINTER_CONFIGS[i].timerPointerOffsets, MAX_POINTER_OFFSET_COUNT);
-            POINTER_CONFIGS[i].cursorBaseOffset = (uintptr_t)wcstoul(trim_quotes(fields[5]), NULL, 0);
-            lstrcpynW(cursorOffsetsText, trim_quotes(fields[6]), ARRAY_COUNT(cursorOffsetsText));
-            POINTER_CONFIGS[i].cursorPointerOffsetCount = split_csv_offsets(cursorOffsetsText, POINTER_CONFIGS[i].cursorPointerOffsets, MAX_POINTER_OFFSET_COUNT);
-            POINTER_CONFIGS[i].menuCursorBaseOffset = (uintptr_t)wcstoul(trim_quotes(fields[7]), NULL, 0);
-            lstrcpynW(menuCursorOffsetsText, trim_quotes(fields[8]), ARRAY_COUNT(menuCursorOffsetsText));
-            POINTER_CONFIGS[i].menuCursorPointerOffsetCount = split_csv_offsets(menuCursorOffsetsText, POINTER_CONFIGS[i].menuCursorPointerOffsets, MAX_POINTER_OFFSET_COUNT);
-            POINTER_CONFIGS[i].cursorValue = _wtoi(trim_quotes(fields[9]));
-            POINTER_CONFIGS[i].menuCursorPosition = _wtoi(trim_quotes(fields[10]));
-            POINTER_CONFIGS[i].theoreticalMaxLevel = _wtoi(trim_quotes(fields[11]));
-            POINTER_CONFIGS[i].initialTimerFrames = _wtoi(trim_quotes(fields[12]));
-            loadedAny = true;
-            break;
+        key = trim_quotes(key);
+        value = trim_quotes(value);
+        if (wcscmp(key, L"base_address") == 0) {
+            POINTER_CHAINS.baseOffset = (uintptr_t)wcstoul(value, NULL, 0);
+            hasBaseAddress = true;
+        } else if (wcscmp(key, L"game_mode_offsets") == 0) {
+            POINTER_CHAINS.gameModeOffsetCount = split_csv_offsets(value, POINTER_CHAINS.gameModeOffsets, MAX_POINTER_OFFSET_COUNT);
+            hasGameModeOffsets = POINTER_CHAINS.gameModeOffsetCount > 0;
+        } else if (wcscmp(key, L"menu_cursor_y_offsets") == 0) {
+            POINTER_CHAINS.menuCursorYOffsetCount = split_csv_offsets(value, POINTER_CHAINS.menuCursorYOffsets, MAX_POINTER_OFFSET_COUNT);
+            hasMenuCursorYOffsets = POINTER_CHAINS.menuCursorYOffsetCount > 0;
+        } else if (wcscmp(key, L"level_offsets") == 0) {
+            POINTER_CHAINS.levelOffsetCount = split_csv_offsets(value, POINTER_CHAINS.levelOffsets, MAX_POINTER_OFFSET_COUNT);
+            hasLevelOffsets = POINTER_CHAINS.levelOffsetCount > 0;
+        } else if (wcscmp(key, L"timer_offsets") == 0) {
+            POINTER_CHAINS.timerOffsetCount = split_csv_offsets(value, POINTER_CHAINS.timerOffsets, MAX_POINTER_OFFSET_COUNT);
+            hasTimerOffsets = POINTER_CHAINS.timerOffsetCount > 0;
         }
     }
 
     fclose(file);
-    if (!loadedAny) {
+    if (!hasBaseAddress || !hasGameModeOffsets || !hasMenuCursorYOffsets || !hasLevelOffsets || !hasTimerOffsets) {
+        clear_pointer_chains();
         write_pointer_configs_to_file();
+        copy_status_text(L"config.txt was invalid; created the shared pointer template");
     }
 }
-
 void save_best_times(void) {
     FILE *file;
     int i;

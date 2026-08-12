@@ -329,7 +329,7 @@ static bool resolve_level_address(uintptr_t *resolvedAddress) {
         return false;
     }
 
-    return resolve_pointer_chain(config->baseOffset, config->pointerOffsets, config->pointerOffsetCount, resolvedAddress);
+    return resolve_pointer_chain(POINTER_CHAINS.baseOffset, POINTER_CHAINS.levelOffsets, POINTER_CHAINS.levelOffsetCount, resolvedAddress);
 }
 
 static bool read_int_from_address(uintptr_t address, int *valueOut) {
@@ -353,7 +353,7 @@ static bool read_game_timer_frames_internal(int *framesOut) {
 
     g_app.timerAddress = 0;
     g_app.timerReadable = false;
-    if (!resolve_pointer_chain(config->timerBaseOffset, config->timerPointerOffsets, config->timerPointerOffsetCount, &resolvedAddress)) {
+    if (!resolve_pointer_chain(POINTER_CHAINS.baseOffset, POINTER_CHAINS.timerOffsets, POINTER_CHAINS.timerOffsetCount, &resolvedAddress)) {
         lstrcpynW(g_app.timerReadStatus, L"Timer pointer resolve failed", ARRAY_COUNT(g_app.timerReadStatus));
         return false;
     }
@@ -416,7 +416,7 @@ static bool detect_mode_from_cursor(void) {
         return false;
     }
 
-    if (!resolve_pointer_chain(config->cursorBaseOffset, config->cursorPointerOffsets, config->cursorPointerOffsetCount, &cursorAddress)) {
+    if (!resolve_pointer_chain(POINTER_CHAINS.baseOffset, POINTER_CHAINS.gameModeOffsets, POINTER_CHAINS.gameModeOffsetCount, &cursorAddress)) {
         return keep_last_confirmed_mode(L"Game mode pointer unavailable; using last confirmed mode");
     }
     if (!read_int_from_address(cursorAddress, &cursorValue)) {
@@ -424,7 +424,7 @@ static bool detect_mode_from_cursor(void) {
     }
 
     g_app.cursorAddress = cursorAddress;
-    if (!resolve_pointer_chain(config->menuCursorBaseOffset, config->menuCursorPointerOffsets, config->menuCursorPointerOffsetCount, &menuCursorAddress)) {
+    if (!resolve_pointer_chain(POINTER_CHAINS.baseOffset, POINTER_CHAINS.menuCursorYOffsets, POINTER_CHAINS.menuCursorYOffsetCount, &menuCursorAddress)) {
         return keep_last_confirmed_mode(L"Menu cursor pointer unavailable; using last confirmed mode");
     }
     if (!read_byte_from_address(menuCursorAddress, &menuCursorPosition)) {

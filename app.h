@@ -46,18 +46,6 @@
 
 typedef struct PointerConfig {
     const wchar_t *modeLabel;
-    uintptr_t baseOffset;
-    uintptr_t pointerOffsets[MAX_POINTER_OFFSET_COUNT];
-    size_t pointerOffsetCount;
-    uintptr_t timerBaseOffset;
-    uintptr_t timerPointerOffsets[MAX_POINTER_OFFSET_COUNT];
-    size_t timerPointerOffsetCount;
-    uintptr_t cursorBaseOffset;
-    uintptr_t cursorPointerOffsets[MAX_POINTER_OFFSET_COUNT];
-    size_t cursorPointerOffsetCount;
-    uintptr_t menuCursorBaseOffset;
-    uintptr_t menuCursorPointerOffsets[MAX_POINTER_OFFSET_COUNT];
-    size_t menuCursorPointerOffsetCount;
     int cursorValue;
     int menuCursorPosition;
     int theoreticalMaxLevel;
@@ -65,6 +53,18 @@ typedef struct PointerConfig {
     const wchar_t *saveFileName;
     const wchar_t *maxLevelFileName;
 } PointerConfig;
+
+typedef struct PointerChains {
+    uintptr_t baseOffset;
+    uintptr_t gameModeOffsets[MAX_POINTER_OFFSET_COUNT];
+    size_t gameModeOffsetCount;
+    uintptr_t menuCursorYOffsets[MAX_POINTER_OFFSET_COUNT];
+    size_t menuCursorYOffsetCount;
+    uintptr_t levelOffsets[MAX_POINTER_OFFSET_COUNT];
+    size_t levelOffsetCount;
+    uintptr_t timerOffsets[MAX_POINTER_OFFSET_COUNT];
+    size_t timerOffsetCount;
+} PointerChains;
 
 typedef struct RunSnapshot {
     bool valid;
@@ -182,6 +182,7 @@ typedef struct AppState {
 } AppState;
 
 extern PointerConfig POINTER_CONFIGS[];
+extern PointerChains POINTER_CHAINS;
 extern const TableColumnDefinition TABLE_COLUMNS[COLUMN_COUNT];
 extern AppState g_app;
 

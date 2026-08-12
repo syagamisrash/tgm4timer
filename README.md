@@ -55,72 +55,25 @@ Windows用の `Tetris The Grand Master 4` 補助ツールです。
 
 ## 設定ファイル
 
-アドレス情報は `config.txt` に持ちます。  
-実行ファイルと同じディレクトリに置きます。
-
-起動時の挙動:
-
-- `config.txt` が存在しない場合
-  内蔵の初期設定値から自動生成
-- `config.txt` が存在する場合
-  内容を読み込んで反映
-
-形式はTSVです。
+メモリアドレス情報は実行ファイルと同じディレクトリの `config.txt` にあります。
+全ゲームモードで共通の値だけを持つため、ゲーム更新後は5項目だけを修正すれば反映されます。
 
 ```text
-mode	level_base	level_offsets	timer_base	timer_offsets	cursor_value	menu_cursor_position	theoretical_max_level	initial_timer_frames
-NORMAL	0x00A7E528	0x8,0x30,0x10,0x10,0x10,0xC,0x98	0x00A7E528	0x8,0x30,0x10,0x10,0x10,0xC,0xA0	9	1	999	0
+# Shared pointer settings for every game mode.
+base_address	0x00A7FBC8
+game_mode_offsets	0x8,0x30,0x30,0x1c
+menu_cursor_y_offsets	0x8,0x30,0x30,0x15
+level_offsets	0x8,0x30,0x28,0x1a4
+timer_offsets	0x8,0x30,0x28,0x1dc
 ```
 
-列の意味:
+- `base_address`: `tgm4.exe` のモジュールベースからの共通ベースアドレス
+- `game_mode_offsets`: ゲームモード値を読むポインタチェイン
+- `menu_cursor_y_offsets`: メニューカーソルY値を読むポインタチェイン
+- `level_offsets`: 現在Lvを読むポインタチェイン
+- `timer_offsets`: ゲーム内タイマーのフレーム値を読むポインタチェイン
 
-- `mode`
-  モード名
-- `level_base`
-  `Level` 読取のベースアドレス
-- `level_offsets`
-  `Level` 用オフセット列。カンマ区切り
-- `timer_base`
-  ゲーム内タイマー読取のベースアドレス
-- `timer_offsets`
-  タイマー用オフセット列。カンマ区切り
-- `cursor_value`
-  モード判定に使うゲームモード値
-- `menu_cursor_position`
-  メニューカーソル位置
-- `theoretical_max_level`
-  そのモードの理論最大Lv
-- `initial_timer_frames`
-  タイマー初期値。60FPS基準フレーム数
-
-### 初期タイマーフレームの考え方
-
-- `ASUKA` は `7:00.00` 開始なので `25200`
-- `ASUKAEASY` は `30:00.00` 開始なので `108000`
-- それ以外は `0`
-
-## 保存されるファイル
-
-実行ファイルの横に `save` フォルダを作ります。
-
-- `section_bests_*.txt`
-  モードごとのベスト区間
-- `max_level_*.txt`
-  モードごとの最大到達Lv
-
-履歴20件はメモリ内だけです。アプリ終了で消えます。
-
-## 履歴表示
-
-上部の `←` `→` ボタンで直近20回分を見返せます。
-
-- `←`
-  1つ前の履歴を見る
-- `→`
-  新しい履歴側へ戻る
-
-履歴表示中の `Current Level` は、そのプレイ終了時のLvです。
-
+各オフセットは `0x...` をカンマで区切って指定します。`config.txt` が存在しない場合は、同じ5項目の空テンプレートを生成します。アドレス値は `config.txt` のみに保持し、ソースコードには持ちません。
 ## ビルド
 
 ### MinGW-w64

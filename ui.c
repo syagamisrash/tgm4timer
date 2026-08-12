@@ -174,45 +174,41 @@ static void draw_debug_text(HDC hdc, int x, int y) {
     draw_text_line(hdc, &y, line, RGB(220, 220, 220));
     swprintf(line, ARRAY_COUNT(line), L"RunStartFrames=%d  CurrentTimerFrames=%d  RunStartMs=%llu  LastPollMs=%llu", g_app.runStartGameTimerFrames, g_app.currentGameTimerFrames, g_app.runStartMs, g_app.lastPollMs);
     draw_text_line(hdc, &y, line, RGB(220, 220, 220));
-    if (config != NULL) {
-        swprintf(line, ARRAY_COUNT(line), L"LevelBase=0x%08IX  TimerBase=0x%08IX  CursorBase=0x%08IX  MenuCursorBase=0x%08IX",
-            config->baseOffset, config->timerBaseOffset, config->cursorBaseOffset, config->menuCursorBaseOffset);
-        draw_text_line(hdc, &y, line, RGB(220, 220, 220));
+    swprintf(line, ARRAY_COUNT(line), L"BaseAddress=0x%08IX", POINTER_CHAINS.baseOffset);
+    draw_text_line(hdc, &y, line, RGB(220, 220, 220));
 
-        offsets[0] = L'\0';
-        for (i = 0; i < config->pointerOffsetCount; ++i) {
-            wchar_t piece[32];
-            swprintf(piece, ARRAY_COUNT(piece), i == 0 ? L"LevelOffsets: 0x%IX" : L" -> 0x%IX", config->pointerOffsets[i]);
-            wcsncat(offsets, piece, ARRAY_COUNT(offsets) - wcslen(offsets) - 1);
-        }
-        draw_text_line(hdc, &y, offsets, RGB(190, 230, 255));
-
-        offsets[0] = L'\0';
-        for (i = 0; i < config->timerPointerOffsetCount; ++i) {
-            wchar_t piece[32];
-            swprintf(piece, ARRAY_COUNT(piece), i == 0 ? L"TimerOffsets: 0x%IX" : L" -> 0x%IX", config->timerPointerOffsets[i]);
-            wcsncat(offsets, piece, ARRAY_COUNT(offsets) - wcslen(offsets) - 1);
-        }
-        draw_text_line(hdc, &y, offsets, RGB(190, 230, 255));
-
-        offsets[0] = L'\0';
-        for (i = 0; i < config->cursorPointerOffsetCount; ++i) {
-            wchar_t piece[32];
-            swprintf(piece, ARRAY_COUNT(piece), i == 0 ? L"CursorOffsets: 0x%IX" : L" -> 0x%IX", config->cursorPointerOffsets[i]);
-            wcsncat(offsets, piece, ARRAY_COUNT(offsets) - wcslen(offsets) - 1);
-        }
-        draw_text_line(hdc, &y, offsets, RGB(190, 230, 255));
-
-        offsets[0] = L'\0';
-        for (i = 0; i < config->menuCursorPointerOffsetCount; ++i) {
-            wchar_t piece[32];
-            swprintf(piece, ARRAY_COUNT(piece), i == 0 ? L"MenuOffsets: 0x%IX" : L" -> 0x%IX", config->menuCursorPointerOffsets[i]);
-            wcsncat(offsets, piece, ARRAY_COUNT(offsets) - wcslen(offsets) - 1);
-        }
-        draw_text_line(hdc, &y, offsets, RGB(190, 230, 255));
+    offsets[0] = L'\0';
+    for (i = 0; i < POINTER_CHAINS.levelOffsetCount; ++i) {
+        wchar_t piece[32];
+        swprintf(piece, ARRAY_COUNT(piece), i == 0 ? L"LevelOffsets: 0x%IX" : L" -> 0x%IX", POINTER_CHAINS.levelOffsets[i]);
+        wcsncat(offsets, piece, ARRAY_COUNT(offsets) - wcslen(offsets) - 1);
     }
-}
+    draw_text_line(hdc, &y, offsets, RGB(190, 230, 255));
 
+    offsets[0] = L'\0';
+    for (i = 0; i < POINTER_CHAINS.timerOffsetCount; ++i) {
+        wchar_t piece[32];
+        swprintf(piece, ARRAY_COUNT(piece), i == 0 ? L"TimerOffsets: 0x%IX" : L" -> 0x%IX", POINTER_CHAINS.timerOffsets[i]);
+        wcsncat(offsets, piece, ARRAY_COUNT(offsets) - wcslen(offsets) - 1);
+    }
+    draw_text_line(hdc, &y, offsets, RGB(190, 230, 255));
+
+    offsets[0] = L'\0';
+    for (i = 0; i < POINTER_CHAINS.gameModeOffsetCount; ++i) {
+        wchar_t piece[32];
+        swprintf(piece, ARRAY_COUNT(piece), i == 0 ? L"GameModeOffsets: 0x%IX" : L" -> 0x%IX", POINTER_CHAINS.gameModeOffsets[i]);
+        wcsncat(offsets, piece, ARRAY_COUNT(offsets) - wcslen(offsets) - 1);
+    }
+    draw_text_line(hdc, &y, offsets, RGB(190, 230, 255));
+
+    offsets[0] = L'\0';
+    for (i = 0; i < POINTER_CHAINS.menuCursorYOffsetCount; ++i) {
+        wchar_t piece[32];
+        swprintf(piece, ARRAY_COUNT(piece), i == 0 ? L"MenuCursorYOffsets: 0x%IX" : L" -> 0x%IX", POINTER_CHAINS.menuCursorYOffsets[i]);
+        wcsncat(offsets, piece, ARRAY_COUNT(offsets) - wcslen(offsets) - 1);
+    }
+    draw_text_line(hdc, &y, offsets, RGB(190, 230, 255));
+}
 static double current_section_progress(int level, int theoreticalMaxLevel) {
     int sectionIndex;
     int sectionStart;
