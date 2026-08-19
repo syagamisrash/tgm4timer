@@ -459,6 +459,7 @@ static bool detect_mode_from_cursor(void) {
 static bool read_level_value(int *levelOut) {
     uintptr_t resolvedAddress;
     SIZE_T bytesRead;
+    uint16_t levelValue;
 
     if (g_app.processHandle == NULL) {
         g_app.levelReadable = false;
@@ -473,17 +474,17 @@ static bool read_level_value(int *levelOut) {
     }
 
     g_app.levelAddress = resolvedAddress;
-    if (!ReadProcessMemory(g_app.processHandle, (LPCVOID)g_app.levelAddress, levelOut, sizeof(*levelOut), &bytesRead) || bytesRead != sizeof(*levelOut)) {
+    if (!ReadProcessMemory(g_app.processHandle, (LPCVOID)g_app.levelAddress, &levelValue, sizeof(levelValue), &bytesRead) || bytesRead != sizeof(levelValue)) {
         swprintf(g_app.levelReadStatus, ARRAY_COUNT(g_app.levelReadStatus), L"Level read failed at 0x%p", (void *)resolvedAddress);
         swprintf(g_app.statusText, ARRAY_COUNT(g_app.statusText), L"Level read failed, retrying address resolve");
         return false;
     }
 
+    *levelOut = (int)levelValue;
     g_app.levelReadable = true;
     lstrcpynW(g_app.levelReadStatus, L"Level read OK", ARRAY_COUNT(g_app.levelReadStatus));
     return true;
 }
-
 static void record_new_sections(int currentLevel) {
     int completedSectionCount;
     int sectionIndex;
